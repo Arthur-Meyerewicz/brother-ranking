@@ -1,11 +1,199 @@
+
 'use client';
-import {useEffect,useMemo,useState} from 'react';
+
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import {supabase,configured,Group,Player,Entry} from '../lib/supabase';
-export default function Home(){
- const [groups,setGroups]=useState<Group[]>([]),[players,setPlayers]=useState<Player[]>([]),[entries,setEntries]=useState<Entry[]>([]),[selected,setSelected]=useState('goleiros'),[error,setError]=useState('');
- useEffect(()=>{async function load(){if(!configured){setError('Configure as variáveis do Supabase para conectar o site.');return}const [g,p,e]=await Promise.all([supabase.from('groups').select('*'),supabase.from('players').select('*').eq('active',true),supabase.from('entries').select('*')]);if(g.error||p.error||e.error){setError(g.error?.message||p.error?.message||e.error?.message||'Erro');return}setGroups(g.data||[]);setPlayers(p.data||[]);setEntries(e.data||[])}load();const channel=supabase.channel('ranking-live').on('postgres_changes',{event:'*',schema:'public',table:'entries'},()=>load()).on('postgres_changes',{event:'*',schema:'public',table:'players'},()=>load()).subscribe();return()=>{supabase.removeChannel(channel)}},[]);
- const group=groups.find(g=>g.id===selected);
- const ranking=useMemo(()=>players.filter(p=>p.group_id===selected).map(p=>{const r=entries.filter(e=>e.player_id===p.id).reduce((a,e)=>({wins:a.wins+e.wins,goals:a.goals+e.goals,assists:a.assists+e.assists}),{wins:0,goals:0,assists:0});return {...p,...r,score:r.wins*(group?.win_points||0)+r.goals*(group?.goal_points||0)+r.assists*(group?.assist_points||0)}}).sort((a,b)=>b.score-a.score||b.wins-a.wins||a.name.localeCompare(b.name)),[players,entries,selected,group]);
- return <main className="wrap"><header className="header"><div className="logo">⚽ BROTHER <span>Ranking</span></div><Link className="btn" href="/login">Área administrativa</Link></header><h1>Classificação geral</h1><p className="muted">Acompanhe os resultados atualizados dos nossos jogadores.</p><div className="tabs">{groups.length?groups.map(g=><button key={g.id} className={selected===g.id?'primary':''} onClick={()=>setSelected(g.id)}>{g.name}</button>):<><button className="primary">Goleiros</button><button>Jogadores de linha</button></>}</div><section className="panel"><div className="line"><h2>🏆 {group?.name||'Ranking'}</h2><span className="pill">Atualização automática</span></div>{error&&<p className="error">{error}</p>}{ranking.length===0&&!error&&<p className="muted">Nenhum jogador cadastrado neste grupo.</p>}{ranking.map((p,i)=><div className="ranking" key={p.id}><div className="place">{i+1}º</div><div className="grow"><strong>{p.name}</strong><div className="muted small">{p.wins} vitórias · {p.goals} gols · {p.assists} assistências</div></div><div className="score">{p.score.toLocaleString('pt-BR')} <span className="small muted">pts</span></div></div>)}</section><p className="muted small">Critérios: {group?`${group.win_points} por vitória · ${group.goal_points} por gol · ${group.assist_points} por assistência`:'definidos por categoria'}.</p></main>
+import { supabase, configured } from '../lib/supabase';
+
+type Ranking = {
+  id: string;
+  name: string;
+  win_points: number;
+  goal_points: number;
+  assist_points: number;
+};
+
+type Player = {
+  id: string;
+  ranking_id: string;
+  name: string;
+  active: boolean;
+};
+
+type Result = {
+  id: string;
+  ranking_id: string;
+  player_id: string;
+  wins: number;
+  goals: number;
+  assists: number;
+  reversed_at: string | null;
+};
+
+export default function Home() {
+  const [rankings, setRankings] = useState<Ranking[]>([]);
+  const [players, setPlayers] = useState<Player[]>([]);
+  const [results, setResults] = useState<Result[]>([]);
+  const [selected, setSelected] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!configured) {
+      setError('Supabase não configurado.');
+      setLoading(false);
+      return;
+    }
+
+    async function load() {
+      const [r, p, e] = await Promise.all([
+        supabase.from('rankings').select('*'),
+        supabase.from('players').select('*').eq('active', true),
+        supabase.from('results')
+          .select('*')
+          .is('reversed_at', null)
+      ]);
+
+      if (r.error || p.error || e.error) {
+        setError(
+          r.error?.message ||
+          p.error?.message ||
+          e.error?.message ||
+          'Erro ao carregar ranking.'
+        );
+        setLoading(false);
+        return;
+      }
+
+      const data = (r.data || []) as Ranking[];
+
+      setRankings(data);
+      setPlayers((p.data || []) as Player[]);
+      setResults((e.data || []) as Result[]);
+
+      setSelected(current =>
+        data.some(item => item.id === current)
+          ? current
+          : data.find(item =>
+              item.name === 'BROTHER Goleiros'
+            )?.id || data[0]?.id || ''
+      );
+
+      setError('');
+      setLoading(false);
+    }
+
+    load();
+
+    // Atualiza periodicamente, mesmo sem Realtime habilitado.
+    const interval = setInterval(load, 15000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  const currentRanking = rankings.find(r => r.id === selected);
+
+  const classification = useMemo(() => {
+    return players
+      .filter(p => p.ranking_id === selected)
+      .map(player => {
+        const totals = results
+          .filter(r => r.player_id === player.id)
+          .reduce(
+            (acc, r) => ({
+              wins: acc.wins + r.wins,
+              goals: acc.goals + r.goals,
+              assists: acc.assists + r.assists
+            }),
+            { wins: 0, goals: 0, assists: 0 }
+          );
+
+        const score =
+          totals.wins * (currentRanking?.win_points ?? 0) +
+          totals.goals * (currentRanking?.goal_points ?? 0) +
+          totals.assists * (currentRanking?.assist_points ?? 0);
+
+        return { ...player, ...totals, score };
+      })
+      .sort(
+        (a, b) =>
+          b.score - a.score ||
+          b.wins - a.wins ||
+          a.name.localeCompare(b.name)
+      );
+  }, [players, results, selected, currentRanking]);
+
+  return (
+    <main className="wrap">
+      <header className="header">
+        <div className="logo">
+          ⚽ BROTHER <span>Ranking</span>
+        </div>
+        <Link className="btn" href="/login">
+          Área administrativa
+        </Link>
+      </header>
+
+      <h1>Classificação geral</h1>
+      <p className="muted">
+        Acompanhe os resultados atualizados dos nossos jogadores.
+      </p>
+
+      <div className="tabs">
+        {rankings.map(r => (
+          <button
+            key={r.id}
+            className={selected === r.id ? 'primary' : ''}
+            onClick={() => setSelected(r.id)}
+          >
+            {r.name}
+          </button>
+        ))}
+      </div>
+
+      <section className="panel">
+        <div className="line">
+          <h2>🏆 {currentRanking?.name || 'Ranking'}</h2>
+          <span className="pill">Atualização automática</span>
+        </div>
+
+        {loading && <p className="muted">Carregando...</p>}
+
+        {error && <p className="error">{error}</p>}
+
+        {!loading && !error && classification.length === 0 && (
+          <p className="muted">
+            Nenhum jogador cadastrado neste ranking.
+          </p>
+        )}
+
+        {classification.map((p, i) => (
+          <div className="ranking" key={p.id}>
+            <div className="place">{i + 1}º</div>
+
+            <div className="grow">
+              <strong>{p.name}</strong>
+              <div className="muted small">
+                {p.wins} vitórias · {p.goals} gols ·{' '}
+                {p.assists} assistências
+              </div>
+            </div>
+
+            <div className="score">
+              {p.score.toLocaleString('pt-BR')}
+              <span className="small muted"> pts</span>
+            </div>
+          </div>
+        ))}
+      </section>
+
+      <p className="muted small">
+        Critérios: {currentRanking
+          ? `${currentRanking.win_points} por vitória ·
+             ${currentRanking.goal_points} por gol ·
+             ${currentRanking.assist_points} por assistência`
+          : 'definidos por categoria'}.
+      </p>
+    </main>
+  );
 }
