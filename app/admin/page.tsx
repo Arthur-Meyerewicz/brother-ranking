@@ -1,18 +1,3 @@
-        >
-          Cadastrar jogador
-        </button>
-      </section>
-
-      <section className="panel">
-        <h2>⚙️ Gerenciar jogadores</h2>
-        <p className="muted small">
-          Categoria: {currentRanking?.name || 'Nenhuma'}. Alterações de nome
-          preservam os resultados. Jogadores inativos não podem receber novos lançamentos.
-        </p>
-        <label>
-          <input
-            type="checkbox"
-            checked={showInactive}
             onChange={e => setShowInactive(e.target.checked)}
           />{' '}Mostrar jogadores inativos
         </label>
@@ -62,57 +47,67 @@
       </section>
 
       <section className="panel">
-        <h2>📋 Últimos lançamentos</h2>
-
-        {results.length === 0 && (
-          <p className="muted">
-            Nenhum lançamento encontrado.
-          </p>
-        )}
-
-        {results.map(result => {
-          const playerName =
-            players.find(p => p.id === result.player_id)?.name ||
-            'Jogador';
-
-          const rankingName =
-            rankings.find(r => r.id === result.ranking_id)?.name ||
-            'Ranking';
-
+        <h2>📋 Histórico administrativo</h2>
+        <p className="muted small">Consulte lançamentos, responsáveis e estornos. O resumo considera somente registros válidos.</p>
+        <div className="grid">
+          <div>
+            <label>Categoria</label>
+            <select value={historyRanking} onChange={e => { setHistoryRanking(e.target.value); setHistoryPlayer(''); }}>
+              <option value="">Todas</option>
+              {rankings.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label>Jogador</label>
+            <select value={historyPlayer} onChange={e => setHistoryPlayer(e.target.value)}>
+              <option value="">Todos</option>
+              {players.filter(p => !historyRanking || p.ranking_id === historyRanking)
+                .map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label>Situação</label>
+            <select value={historyStatus} onChange={e => setHistoryStatus(e.target.value)}>
+              <option value="todos">Todos</option>
+              <option value="validos">Válidos</option>
+              <option value="estornados">Estornados</option>
+            </select>
+          </div>
+        </div>
+        <div className="grid">
+          <div><label>Data inicial (UTC)</label><input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} /></div>
+          <div><label>Data final (UTC)</label><input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} /></div>
+        </div>
+        <p><strong>{filteredResults.length} lançamento(s) encontrado(s)</strong></p>
+        <p className="muted small">
+          Total válido: {totals.wins} vitórias · {totals.goals} gols · {totals.assists} assistências · {' '}
+          {totals.points.toLocaleString('pt-BR')} pontos
+        </p>
+        <button onClick={exportHistory} disabled={filteredResults.length === 0}>Exportar CSV para Excel</button>
+        {filteredResults.length === 0 && <p className="muted">Nenhum lançamento encontrado.</p>}
+        {filteredResults.map(result => {
           const reversed = Boolean(result.reversed_at);
-
           return (
             <div className="history line" key={result.id}>
               <div>
-                <strong>{playerName}</strong>
-
+                <strong>{result.player_name}</strong>
+                <div className="muted small">{result.ranking_name}</div>
                 <div className="muted small">
-                  {rankingName}
+                  {new Date(result.created_at).toLocaleString('pt-BR')} · {' '}
+                  {result.wins} V / {result.goals} G / {result.assists} A
                 </div>
-
-                <div className="muted small">
-                  {new Date(result.created_at).toLocaleString('pt-BR')}
-                  {' · '}
-                  {result.wins} V /
-                  {' '}{result.goals} G /
-                  {' '}{result.assists} A
-                </div>
-
-                {reversed && (
-                  <div className="muted small">
-                    Estornado em{' '}
-                    {new Date(result.reversed_at!).toLocaleString('pt-BR')}
-                  </div>
-                )}
+                <div className="muted small">Registrado por: {result.created_by_email || 'Não identificado'}</div>
+                <div className="muted small">Situação: {reversed ? 'ESTORNADO' : 'VÁLIDO'}</div>
+                {reversed && <div className="muted small">
+                  Estornado em {new Date(result.reversed_at!).toLocaleString('pt-BR')}
+                  {' · '}Por: {result.reversed_by_email || 'Não identificado'}
+                </div>}
               </div>
-
               <button
                 className={reversed ? '' : 'danger'}
                 disabled={busy || reversed}
                 onClick={() => undo(result.id)}
-              >
-                {reversed ? 'Estornado' : 'Estornar'}
-              </button>
+              >{reversed ? 'Estornado' : 'Estornar'}</button>
             </div>
           );
         })}
@@ -120,4 +115,3 @@
     </main>
   );
 }
-```
