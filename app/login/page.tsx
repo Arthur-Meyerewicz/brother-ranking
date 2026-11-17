@@ -1,3 +1,70 @@
 'use client';
-import {useState} from 'react';import {useRouter} from 'next/navigation';import Link from 'next/link';import {supabase} from '../../lib/supabase';
-export default function Login(){const [email,setEmail]=useState(''),[password,setPassword]=useState(''),[error,setError]=useState(''),[busy,setBusy]=useState(false);const router=useRouter();async function login(e:React.FormEvent){e.preventDefault();setBusy(true);setError('');const {error}=await supabase.auth.signInWithPassword({email,password});setBusy(false);if(error){setError('Login inválido ou não autorizado.');return}router.push('/admin')}return <main className="wrap"><header className="header"><div className="logo">BROTHER <span>Ranking</span></div><Link href="/">Voltar ao ranking</Link></header><section className="panel" style={{maxWidth:450,margin:'60px auto'}}><h1>Acesso administrativo</h1><p className="muted">Somente administradores cadastrados podem alterar resultados.</p><form onSubmit={login}><label>E-mail</label><input type="email" value={email} onChange={e=>setEmail(e.target.value)} required/><label>Senha</label><input type="password" value={password} onChange={e=>setPassword(e.target.value)} required/>{error&&<p className="error">{error}</p>}<button className="primary" style={{width:'100%',marginTop:20}} disabled={busy}>{busy?'Entrando...':'Entrar'}</button></form></section></main>}
+
+import { useState, type FormEvent } from 'react';
+import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { supabase } from '../../lib/supabase';
+
+export default function Login() {
+  const router = useRouter();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function login(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (busy) return;
+    setBusy(true);
+    setError('');
+    try {
+      const { error: authError } = await supabase.auth.signInWithPassword({
+        email: email.trim(), password
+      });
+      if (authError) throw authError;
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      if (userError || !user) throw new Error('Não foi possível verificar a sessão.');
+      const { data, error: adminError } = await supabase
+        .from('administrators').select('user_id').eq('user_id', user.id).maybeSingle();
+      if (adminError || !data) {
+        await supabase.auth.signOut();
+        setError('Esta conta não possui permissão administrativa.');
+        return;
+      }
+      router.replace('/admin');
+    } catch {
+      setError('Não foi possível entrar. Confira o e-mail e a senha.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <main className="wrap">
+      <header className="header">
+        <div className="logo">⚽ BROTHER <span>Ranking</span></div>
+        <Link className="login-back" href="/">← Voltar ao ranking</Link>
+      </header>
+      <div className="login-shell">
+        <section className="panel login-card">
+          <div className="login-icon" aria-hidden="true">🔐</div>
+          <div className="eyebrow">ÁREA RESTRITA</div>
+          <h1>Acesso administrativo</h1>
+          <p className="muted">Entre com sua conta autorizada para gerenciar jogadores, resultados e histórico.</p>
+          <form onSubmit={login}>
+            <label htmlFor="login-email">E-mail</label>
+            <input id="login-email" type="email" autoComplete="username" value={email}
+              onChange={event => setEmail(event.target.value)} placeholder="seu@email.com" required />
+            <label htmlFor="login-password">Senha</label>
+            <input id="login-password" type="password" autoComplete="current-password"
+              value={password} onChange={event => setPassword(event.target.value)} required />
+            {error && <p className="error" role="alert">{error}</p>}
+            <button type="submit" className="primary" disabled={busy}>
+              {busy ? 'Verificando acesso...' : 'Entrar no painel'}
+            </button>
+          </form>
+        </section>
+      </div>
+    </main>
+  );
+}

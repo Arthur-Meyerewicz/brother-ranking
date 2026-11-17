@@ -134,12 +134,12 @@ export default function Home() {
         </Link>
       </header>
 
-      <h1>Classificação geral</h1>
+      <div className="public-hero"><div className="eyebrow">TEMPORADA • CLASSIFICAÇÃO OFICIAL</div><h1>O ranking dos melhores.</h1>
       <p className="muted">
-        Acompanhe os resultados atualizados dos nossos jogadores.
-      </p>
+        Acompanhe cada vitória, gol e assistência em tempo real.
+      </p></div>
 
-      <div className="tabs">
+      <div className="tabs category-switch">
         {rankings.map(r => (
           <button
             key={r.id}
@@ -151,10 +151,29 @@ export default function Home() {
         ))}
       </div>
 
-      <section className="panel">
+      {!loading && !error && classification.length > 0 && (
+        <section className="podium-section" aria-label="Pódio dos três primeiros colocados">
+          <div className="section-heading"><span className="eyebrow">DESTAQUES</span><h2>🏆 Pódio da categoria</h2></div>
+          <div className="podium-grid">
+            {[1, 0, 2].map(index => {
+              const item = classification[index];
+              if (!item) return <div key={index} className="podium-empty" />;
+              return <div key={item.id} className={`podium-card podium-${index + 1}`}>
+                <div className="podium-medal">{index === 0 ? '🥇' : index === 1 ? '🥈' : '🥉'}</div>
+                <div className="podium-position">{index + 1}º LUGAR</div>
+                <h3>{item.name}</h3>
+                <div className="podium-score">{item.score.toLocaleString('pt-BR')}<span> pts</span></div>
+                <div className="podium-stats">{item.wins} V · {item.goals} G · {item.assists} A</div>
+              </div>;
+            })}
+          </div>
+        </section>
+      )}
+
+      <section className="panel leaderboard-panel">
         <div className="line">
           <h2>🏆 {currentRanking?.name || 'Ranking'}</h2>
-          <span className="pill">Atualização automática</span>
+          <span className="pill">● Atualização a cada 15 s</span>
         </div>
 
         {loading && <p className="muted">Carregando...</p>}
@@ -168,7 +187,7 @@ export default function Home() {
         )}
 
         {classification.map((p, i) => (
-          <div className="ranking" key={p.id}>
+          <div className={`ranking ${i < 3 ? "ranking-top" : ""}`} key={p.id}>
             <div className="place">{i + 1}º</div>
 
             <div className="grow">

@@ -1,7 +1,6 @@
-
 'use client';
 
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '../../lib/supabase';
@@ -21,63 +20,32 @@ type Player = {
   active: boolean;
 };
 
-type HistoryResult = {
+type Result = {
+  player_name: string;
+  ranking_name: string;
+  created_by_email: string | null;
+  reversed_by_email: string | null;
   id: string;
   ranking_id: string;
   player_id: string;
-  player_name: string;
-  ranking_name: string;
   wins: number;
   goals: number;
   assists: number;
   created_at: string;
   created_by: string | null;
-  created_by_email: string | null;
   reversed_at: string | null;
   reversed_by: string | null;
-  reversed_by_email: string | null;
 };
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error
-    ? error.message
-    : 'Erro desconhecido';
-}
-
-function formatDate(value: string): string {
-  return new Date(value).toLocaleString('pt-BR', {
-    timeZone: 'America/Sao_Paulo'
-  });
-}
-
-function formatPoints(value: number): string {
-  return value.toLocaleString('pt-BR', {
-    maximumFractionDigits: 2
-  });
-}
-
-function csvCell(value: unknown): string {
-  let text = String(value ?? '');
-
-  // Evita interpretação de fórmulas pelo Excel.
-  if (/^[\s]*[=+\-@\t\r]/.test(text)) {
-    text = "'" + text;
-  }
-
-  return '"' + text.replace(/"/g, '""') + '"';
-}
 
 export default function Admin() {
   const router = useRouter();
 
   const [authorized, setAuthorized] = useState(false);
   const [checking, setChecking] = useState(true);
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState('');
 
   const [rankings, setRankings] = useState<Ranking[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
-  const [results, setResults] = useState<HistoryResult[]>([]);
+  const [results, setResults] = useState<Result[]>([]);
 
   const [ranking, setRanking] = useState('');
   const [player, setPlayer] = useState('');
@@ -87,11 +55,12 @@ export default function Admin() {
   const [assists, setAssists] = useState('0');
 
   const [newName, setNewName] = useState('');
-
-  const [showInactive, setShowInactive] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
-
+  const [showInactive, setShowInactive] = useState(false);
+  const [activeSection, setActiveSection] = useState<'resultados' | 'jogadores' | 'historico'>('resultados');
+  const [message, setMessage] = useState('');
+  const [busy, setBusy] = useState(false);
   const [historyRanking, setHistoryRanking] = useState('');
   const [historyPlayer, setHistoryPlayer] = useState('');
   const [historyStatus, setHistoryStatus] = useState('todos');
@@ -99,36 +68,32 @@ export default function Admin() {
   const [dateTo, setDateTo] = useState('');
 
   const load = useCallback(async () => {
-    const [rankingResponse, playerResponse, historyResponse] =
-      await Promise.all([
-        supabase
-          .from('rankings')
-          .select('*')
-          .order('name'),
+    const [r, p, e] = await Promise.all([
+      supabase
+        .from('rankings')
+        .select('*')
+        .order('name'),
 
-        supabase
-          .from('players')
-          .select('*')
-          .order('name'),
+      supabase
+        .from('players')
+        .select('*')
+        .order('name'),
 
-        supabase.rpc('admin_results_history')
-      ]);
+      supabase.rpc('admin_results_history')
+    ]);
 
-    const error =
-      rankingResponse.error ||
-      playerResponse.error ||
-      historyResponse.error;
-
-    if (error) {
-      throw new Error(error.message);
+    if (r.error || p.error || e.error) {
+      throw new Error(r.error?.message || p.error?.message || e.error?.message || 'Erro ao consultar dados.');
     }
 
-    const rankingData =
-      (rankingResponse.data || []) as Ranking[];
+    const rankingData = (r.data || []) as Ranking[];
 
     setRankings(rankingData);
-    setPlayers((playerResponse.data || []) as Player[]);
-    setResults((historyResponse.data || []) as HistoryResult[]);
+    setPlayers((p.data || []) as Player[]);
+    setResults((e.data || []) as Result[]);
+    if ((e.data || []).length >= 1000) {
+      setMessage('Atenção: histórico com 1.000 ou mais registros. Será necessário adicionar paginação para consultar todos.');
+    }
 
     setRanking(current =>
       rankingData.some(item => item.id === current)
@@ -139,60 +104,34 @@ export default function Admin() {
 
   useEffect(() => {
     let cancelled = false;
-
     async function initialize() {
       try {
-        const { data: { user }, error } =
-          await supabase.auth.getUser();
-
+        const { data: { user }, error } = await supabase.auth.getUser();
         if (cancelled) return;
-
-        if (error || !user) {
-          router.replace('/login');
-          return;
-        }
-
+        if (error || !user) { router.replace('/login'); return; }
         const { data, error: adminError } = await supabase
-          .from('administrators')
-          .select('user_id')
-          .eq('user_id', user.id)
-          .maybeSingle();
-
+          .from('administrators').select('user_id').eq('user_id', user.id).maybeSingle();
         if (cancelled) return;
-
-        if (adminError || !data) {
-          router.replace('/');
-          return;
-        }
-
+        if (adminError || !data) { router.replace('/'); return; }
         setAuthorized(true);
         await load();
       } catch (error) {
-        if (!cancelled) {
-          setMessage(
-            'Erro ao carregar painel: ' + errorMessage(error)
-          );
-        }
+        if (!cancelled) setMessage('Erro ao carregar painel: ' +
+          (error instanceof Error ? error.message : 'Erro desconhecido'));
       } finally {
-        if (!cancelled) {
-          setChecking(false);
-        }
+        if (!cancelled) setChecking(false);
       }
     }
-
-    initialize();
-
-    return () => {
-      cancelled = true;
-    };
+    void initialize();
+    return () => { cancelled = true; };
   }, [router, load]);
 
   const currentRanking = rankings.find(
-    item => item.id === ranking
+    r => r.id === ranking
   );
 
   const rankingPlayers = players.filter(
-    item => item.ranking_id === ranking && item.active
+    p => p.ranking_id === ranking && p.active
   );
 
   const validValues = [wins, goals, assists].every(
@@ -208,113 +147,14 @@ export default function Admin() {
       Number(assists) * Number(currentRanking?.assist_points ?? 0)
     : NaN;
 
-  const filteredResults = useMemo(() => {
-    return results.filter(result => {
-      if (
-        historyRanking &&
-        result.ranking_id !== historyRanking
-      ) {
-        return false;
-      }
-
-      if (
-        historyPlayer &&
-        result.player_id !== historyPlayer
-      ) {
-        return false;
-      }
-
-      if (
-        historyStatus === 'validos' &&
-        result.reversed_at !== null
-      ) {
-        return false;
-      }
-
-      if (
-        historyStatus === 'estornados' &&
-        result.reversed_at === null
-      ) {
-        return false;
-      }
-
-      // As datas são interpretadas no fuso de Brasília.
-      const timestamp = new Date(result.created_at).getTime();
-
-      if (dateFrom) {
-        const start = new Date(
-          `${dateFrom}T00:00:00-03:00`
-        ).getTime();
-
-        if (timestamp < start) return false;
-      }
-
-      if (dateTo) {
-        const end = new Date(
-          `${dateTo}T23:59:59.999-03:00`
-        ).getTime();
-
-        if (timestamp > end) return false;
-      }
-
-      return true;
-    });
-  }, [
-    results,
-    historyRanking,
-    historyPlayer,
-    historyStatus,
-    dateFrom,
-    dateTo
-  ]);
-
-  const totals = useMemo(() => {
-    return filteredResults.reduce(
-      (acc, result) => {
-        if (result.reversed_at) return acc;
-
-        const rankingData = rankings.find(
-          item => item.id === result.ranking_id
-        );
-
-        acc.wins += result.wins;
-        acc.goals += result.goals;
-        acc.assists += result.assists;
-
-        acc.points +=
-          result.wins * Number(rankingData?.win_points ?? 0) +
-          result.goals * Number(rankingData?.goal_points ?? 0) +
-          result.assists * Number(rankingData?.assist_points ?? 0);
-
-        return acc;
-      },
-      {
-        wins: 0,
-        goals: 0,
-        assists: 0,
-        points: 0
-      }
-    );
-  }, [filteredResults, rankings]);
-
-  async function refresh() {
-    try {
-      await load();
-    } catch (error) {
-      setMessage(
-        'Erro ao atualizar dados: ' + errorMessage(error)
-      );
-    }
-  }
-
   async function save() {
     const values = [wins, goals, assists].map(Number);
 
     if (
       !player ||
-      !rankingPlayers.some(item => item.id === player) ||
+      !rankingPlayers.some(p => p.id === player) ||
       !validValues ||
-      values.every(value => value === 0)
+      values.every(v => v === 0)
     ) {
       setMessage(
         'Selecione um jogador e informe quantidades inteiras válidas.'
@@ -322,15 +162,12 @@ export default function Admin() {
       return;
     }
 
-    const confirmed = window.confirm(
-      `Confirmar lançamento?\n\n` +
-      `Vitórias: ${values[0]}\n` +
-      `Gols: ${values[1]}\n` +
-      `Assistências: ${values[2]}\n` +
-      `Pontos: ${formatPoints(points)}`
-    );
-
-    if (!confirmed) return;
+    if (!window.confirm(
+      `Confirmar lançamento de ${values[0]} vitória(s), ` +
+      `${values[1]} gol(s) e ${values[2]} assistência(s)?`
+    )) {
+      return;
+    }
 
     setBusy(true);
     setMessage('');
@@ -349,11 +186,12 @@ export default function Admin() {
       setGoals('0');
       setAssists('0');
 
-      await refresh();
       setMessage('Resultado registrado com sucesso!');
+      await load();
     } catch (error) {
       setMessage(
-        'Erro ao registrar resultado: ' + errorMessage(error)
+        'Erro ao registrar resultado: ' +
+        (error instanceof Error ? error.message : 'Erro desconhecido')
       );
     } finally {
       setBusy(false);
@@ -364,26 +202,14 @@ export default function Admin() {
     const name = newName.trim();
 
     if (!name || !ranking) {
-      setMessage(
-        'Informe o nome e selecione uma categoria.'
-      );
+      setMessage('Informe o nome e selecione uma categoria.');
       return;
     }
 
-    const duplicate = players.some(
-      item =>
-        item.ranking_id === ranking &&
-        item.name.toLocaleLowerCase('pt-BR') ===
-          name.toLocaleLowerCase('pt-BR')
-    );
-
-    if (duplicate) {
-      setMessage(
-        'Já existe um jogador com esse nome nesta categoria.'
-      );
+    if (players.some(p => p.ranking_id === ranking && p.name.toLocaleLowerCase('pt-BR') === name.toLocaleLowerCase('pt-BR'))) {
+      setMessage('Já existe um jogador com esse nome nesta categoria.');
       return;
     }
-
     setBusy(true);
     setMessage('');
 
@@ -399,145 +225,153 @@ export default function Admin() {
       if (error) throw error;
 
       setNewName('');
-      await refresh();
       setMessage('Jogador cadastrado com sucesso!');
+      await load();
     } catch (error) {
       setMessage(
-        'Erro ao cadastrar jogador: ' + errorMessage(error)
+        'Erro ao cadastrar jogador: ' +
+        (error instanceof Error ? error.message : 'Erro desconhecido')
       );
     } finally {
       setBusy(false);
     }
   }
 
-  function startEditing(item: Player) {
-    setEditingId(item.id);
-    setEditingName(item.name);
+  function startEditing(p: Player) {
+    setEditingId(p.id);
+    setEditingName(p.name);
     setMessage('');
   }
 
-  async function renamePlayer(item: Player) {
+  async function renamePlayer(p: Player) {
     const name = editingName.trim();
-
     if (!name) {
-      setMessage('O nome do jogador não pode ficar vazio.');
+      setMessage('Informe um nome válido.');
       return;
     }
-
-    if (name === item.name) {
+    if (name === p.name) {
       setEditingId(null);
       return;
     }
-
-    const duplicate = players.some(
-      other =>
-        other.id !== item.id &&
-        other.ranking_id === item.ranking_id &&
-        other.name.toLocaleLowerCase('pt-BR') ===
-          name.toLocaleLowerCase('pt-BR')
-    );
-
-    if (duplicate) {
-      setMessage(
-        'Já existe outro jogador com esse nome nesta categoria.'
-      );
-      return;
-    }
-
-    if (!window.confirm(
-      `Alterar o nome de "${item.name}" para "${name}"?`
+    if (players.some(other =>
+      other.id !== p.id &&
+      other.ranking_id === p.ranking_id &&
+      other.name.toLocaleLowerCase('pt-BR') === name.toLocaleLowerCase('pt-BR')
     )) {
+      setMessage('Já existe um jogador com esse nome na categoria.');
       return;
     }
-
     setBusy(true);
     setMessage('');
-
     try {
-      const { data, error } = await supabase
-        .from('players')
+      const { data, error } = await supabase.from('players')
         .update({ name })
-        .eq('id', item.id)
-        .select('id')
-        .single();
-
+        .eq('id', p.id)
+        .eq('ranking_id', p.ranking_id)
+        .select('id');
       if (error) throw error;
-      if (!data) throw new Error('Jogador não atualizado.');
-
+      if (!data?.length) throw new Error('Atualização não confirmada. Verifique suas permissões.');
       setEditingId(null);
-      setEditingName('');
-
-      await refresh();
       setMessage('Nome atualizado com sucesso!');
+      await load();
     } catch (error) {
-      setMessage(
-        'Erro ao editar jogador: ' + errorMessage(error)
-      );
+      setMessage('Erro ao editar jogador: ' +
+        (error instanceof Error ? error.message : 'Erro desconhecido'));
     } finally {
       setBusy(false);
     }
   }
 
-  async function togglePlayer(item: Player) {
-    const nextActive = !item.active;
-
-    const confirmed = window.confirm(
-      nextActive
-        ? `Reativar o jogador "${item.name}"?`
-        : `Desativar "${item.name}"?\n\n` +
-          'O histórico e a pontuação serão preservados.'
-    );
-
-    if (!confirmed) return;
-
+  async function togglePlayer(p: Player) {
+    const action = p.active ? 'desativar' : 'reativar';
+    if (!window.confirm(`Deseja ${action} ${p.name}? Os resultados históricos serão preservados.`)) return;
     setBusy(true);
     setMessage('');
-
     try {
-      const { data, error } = await supabase
-        .from('players')
-        .update({ active: nextActive })
-        .eq('id', item.id)
-        .select('id')
-        .single();
-
+      const { data, error } = await supabase.from('players')
+        .update({ active: !p.active })
+        .eq('id', p.id)
+        .eq('ranking_id', p.ranking_id)
+        .select('id');
       if (error) throw error;
-      if (!data) throw new Error('Jogador não atualizado.');
-
-      if (!nextActive && player === item.id) {
-        setPlayer('');
-      }
-
-      await refresh();
-
-      setMessage(
-        nextActive
-          ? 'Jogador reativado com sucesso!'
-          : 'Jogador desativado com sucesso!'
-      );
+      if (!data?.length) throw new Error('Alteração não confirmada. Verifique suas permissões.');
+      if (p.active && player === p.id) setPlayer('');
+      setMessage(p.active ? 'Jogador desativado com sucesso!' : 'Jogador reativado com sucesso!');
+      await load();
     } catch (error) {
-      setMessage(
-        'Erro ao alterar situação: ' + errorMessage(error)
-      );
+      setMessage('Erro ao alterar situação: ' +
+        (error instanceof Error ? error.message : 'Erro desconhecido'));
     } finally {
       setBusy(false);
     }
+  }
+
+  const filteredResults = results.filter(result => {
+    if (historyRanking && result.ranking_id !== historyRanking) return false;
+    if (historyPlayer && result.player_id !== historyPlayer) return false;
+    if (historyStatus === 'validos' && result.reversed_at) return false;
+    if (historyStatus === 'estornados' && !result.reversed_at) return false;
+    const day = new Intl.DateTimeFormat('sv-SE', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(result.created_at));
+    if (dateFrom && day < dateFrom) return false;
+    if (dateTo && day > dateTo) return false;
+    return true;
+  });
+
+  const validResults = filteredResults.filter(r => !r.reversed_at);
+  const totals = validResults.reduce((acc, r) => {
+    const rule = rankings.find(item => item.id === r.ranking_id);
+    acc.wins += r.wins;
+    acc.goals += r.goals;
+    acc.assists += r.assists;
+    acc.points += r.wins * Number(rule?.win_points ?? 0)
+      + r.goals * Number(rule?.goal_points ?? 0)
+      + r.assists * Number(rule?.assist_points ?? 0);
+    return acc;
+  }, { wins: 0, goals: 0, assists: 0, points: 0 });
+
+  function exportHistory() {
+    const columns = ['Data', 'Categoria', 'Jogador', 'Vitorias', 'Gols',
+      'Assistencias', 'Situacao', 'Registrado por', 'Estornado em', 'Estornado por'];
+    const quote = (value: unknown) => {
+      let text = String(value ?? '');
+      if (/^[\s]*[=+\-@\t\r]/.test(text)) text = "'" + text;
+      return '"' + text.replace(/"/g, '""') + '"';
+    };
+    const lines = [columns, ...filteredResults.map(r => [
+      new Date(r.created_at).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }), r.ranking_name,
+      r.player_name, r.wins, r.goals, r.assists,
+      r.reversed_at ? 'ESTORNADO' : 'VALIDO',
+      r.created_by_email || 'Nao identificado',
+      r.reversed_at ? new Date(r.reversed_at).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : '',
+      r.reversed_by_email || ''
+    ])].map(row => row.map(quote).join(';')).join('\r\n');
+    const blob = new Blob(['\uFEFF' + lines], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = 'brother-historico.csv';
+    anchor.click();
+    URL.revokeObjectURL(url);
   }
 
   async function undo(id: string) {
-    const result = results.find(item => item.id === id);
+    const result = results.find(r => r.id === id);
 
     if (!result || result.reversed_at) return;
 
-    const confirmed = window.confirm(
-      `Estornar o lançamento de ${result.player_name}?\n\n` +
+    const playerName =
+      players.find(p => p.id === result.player_id)?.name ||
+      'Jogador';
+
+    if (!window.confirm(
+      `Deseja estornar o lançamento de ${playerName}?\n\n` +
       `${result.wins} vitória(s)\n` +
       `${result.goals} gol(s)\n` +
       `${result.assists} assistência(s)\n\n` +
-      'O registro permanecerá no histórico.'
-    );
-
-    if (!confirmed) return;
+      'O registro permanecerá no histórico de auditoria.'
+    )) {
+      return;
+    }
 
     setBusy(true);
     setMessage('');
@@ -550,92 +384,16 @@ export default function Admin() {
 
       if (error) throw error;
 
-      await refresh();
       setMessage('Lançamento estornado com sucesso!');
+      await load();
     } catch (error) {
       setMessage(
-        'Erro ao estornar: ' + errorMessage(error)
+        'Erro ao estornar: ' +
+        (error instanceof Error ? error.message : 'Erro desconhecido')
       );
     } finally {
       setBusy(false);
     }
-  }
-
-  function exportHistory() {
-    if (filteredResults.length === 0) return;
-
-    const headers = [
-      'ID',
-      'Categoria',
-      'Jogador',
-      'Vitórias',
-      'Gols',
-      'Assistências',
-      'Pontos',
-      'Data do lançamento',
-      'Registrado por',
-      'Situação',
-      'Data do estorno',
-      'Estornado por'
-    ];
-
-    const rows = filteredResults.map(result => {
-      const rankingData = rankings.find(
-        item => item.id === result.ranking_id
-      );
-
-      const pointsValue = result.reversed_at
-        ? 0
-        : result.wins * Number(rankingData?.win_points ?? 0) +
-          result.goals * Number(rankingData?.goal_points ?? 0) +
-          result.assists * Number(rankingData?.assist_points ?? 0);
-
-      return [
-        result.id,
-        result.ranking_name,
-        result.player_name,
-        result.wins,
-        result.goals,
-        result.assists,
-        formatPoints(pointsValue),
-        formatDate(result.created_at),
-        result.created_by_email || 'Não identificado',
-        result.reversed_at ? 'ESTORNADO' : 'VÁLIDO',
-        result.reversed_at
-          ? formatDate(result.reversed_at)
-          : '',
-        result.reversed_by_email || ''
-      ];
-    });
-
-    const content = [headers, ...rows]
-      .map(row => row.map(csvCell).join(';'))
-      .join('\r\n');
-
-    const blob = new Blob(
-      ['\uFEFF' + content],
-      { type: 'text/csv;charset=utf-8;' }
-    );
-
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-
-    anchor.href = url;
-    anchor.download = 'brother-ranking-historico.csv';
-
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-
-    URL.revokeObjectURL(url);
-  }
-
-  function clearFilters() {
-    setHistoryRanking('');
-    setHistoryPlayer('');
-    setHistoryStatus('todos');
-    setDateFrom('');
-    setDateTo('');
   }
 
   async function logout() {
@@ -643,20 +401,10 @@ export default function Admin() {
     router.replace('/login');
   }
 
-  if (checking) {
+  if (checking || !authorized) {
     return (
       <main className="wrap">
         <p className="muted">Verificando permissão...</p>
-      </main>
-    );
-  }
-
-  if (!authorized) {
-    return (
-      <main className="wrap">
-        <p>Não foi possível carregar o painel.</p>
-        {message && <p className="muted">{message}</p>}
-        <Link href="/login">Voltar ao login</Link>
       </main>
     );
   }
@@ -674,47 +422,37 @@ export default function Admin() {
         </div>
       </header>
 
-      <h1>Painel administrativo</h1>
+      <div className="page-intro"><div className="eyebrow">CENTRAL ADMINISTRATIVA</div><h1>Painel de controle</h1>
 
       <p className="muted">
         Gerencie jogadores, registre resultados e consulte
         o histórico de lançamentos.
-      </p>
+      </p></div>
+
+      <section className="category-panel"><div className="eyebrow">CATEGORIA A SER EDITADA</div><div className="category-switch">{rankings.map(r => (<button key={r.id} type="button" className={ranking === r.id ? "category-choice selected" : "category-choice"} onClick={() => { setRanking(r.id); setPlayer(''); setEditingId(null); }}>{r.name.toLowerCase().includes("goleiro") ? "🧤 " : "⚽ "}{r.name.replace(/^BROTHER\s*/i, "")}</button>))}</div><p className="muted small">A categoria selecionada controla resultados e gerenciamento de jogadores.</p></section>
+
+      <nav className="admin-nav" aria-label="Seções administrativas"><button className={activeSection === "resultados" ? "selected" : ""} onClick={() => setActiveSection("resultados")}>🏆 Resultados</button><button className={activeSection === "jogadores" ? "selected" : ""} onClick={() => setActiveSection("jogadores")}>👥 Jogadores</button><button className={activeSection === "historico" ? "selected" : ""} onClick={() => setActiveSection("historico")}>📋 Histórico</button></nav>
 
       {message && (
-        <section className="panel">
+        <section className="panel" role="status">
           <p>{message}</p>
         </section>
       )}
 
-      <section className="panel">
+      {activeSection === "resultados" && <section className="panel">
         <h2>🏆 Adicionar resultados</h2>
 
-        <label>Categoria</label>
-        <select
-          value={ranking}
-          onChange={e => {
-            setRanking(e.target.value);
-            setPlayer('');
-            setEditingId(null);
-          }}
-        >
-          {rankings.map(item => (
-            <option key={item.id} value={item.id}>
-              {item.name}
-            </option>
-          ))}
-        </select>
-
         <label>Jogador</label>
+
         <select
           value={player}
           onChange={e => setPlayer(e.target.value)}
         >
           <option value="">Selecione um jogador</option>
-          {rankingPlayers.map(item => (
-            <option key={item.id} value={item.id}>
-              {item.name}
+
+          {rankingPlayers.map(p => (
+            <option key={p.id} value={p.id}>
+              {p.name}
             </option>
           ))}
         </select>
@@ -758,7 +496,7 @@ export default function Admin() {
           <strong>
             Pontos adicionados:{' '}
             {Number.isFinite(points)
-              ? formatPoints(points)
+              ? points.toLocaleString('pt-BR')
               : '—'}
           </strong>
         </p>
@@ -771,17 +509,18 @@ export default function Admin() {
 
         <button
           className="primary"
-          disabled={busy || !player || !validValues}
+          disabled={busy || !player || !validValues || [wins, goals, assists].every(v => Number(v) === 0)}
           onClick={save}
         >
           {busy ? 'Processando...' : 'Salvar resultado'}
         </button>
-      </section>
+      </section>}
 
-      <section className="panel">
+      {activeSection === "jogadores" && <section className="panel">
         <h2>👥 Cadastrar jogador</h2>
 
         <label>Nome do jogador</label>
+
         <input
           value={newName}
           onChange={e => setNewName(e.target.value)}
@@ -799,262 +538,132 @@ export default function Admin() {
         >
           Cadastrar jogador
         </button>
-      </section>
+      </section>}
 
-      <section className="panel">
+      {activeSection === "jogadores" && <section className="panel">
         <h2>⚙️ Gerenciar jogadores</h2>
-
         <p className="muted small">
-          Edite nomes, desative ou reative jogadores.
-          O histórico de resultados será preservado.
+          Categoria: {currentRanking?.name || 'Nenhuma'}. Alterações de nome
+          preservam os resultados. Jogadores inativos não podem receber novos lançamentos.
         </p>
-
-        <label>
+        <label className="toggle-label">
           <input
             type="checkbox"
             checked={showInactive}
             onChange={e => setShowInactive(e.target.checked)}
-          />{' '}
-          Mostrar jogadores inativos
+          />{' '}Mostrar jogadores inativos
         </label>
-
-        {players
-          .filter(
-            item =>
-              item.ranking_id === ranking &&
-              (showInactive || item.active)
-          )
-          .map(item => (
-            <div className="history line" key={item.id}>
+        {players.filter(p => p.ranking_id === ranking && (showInactive || p.active))
+          .map(p => (
+            <div className="history line" key={p.id}>
               <div style={{ flex: 1, minWidth: 0 }}>
-                {editingId === item.id ? (
+                {editingId === p.id ? (
                   <input
                     value={editingName}
                     maxLength={100}
                     onChange={e => setEditingName(e.target.value)}
-                    aria-label={`Novo nome de ${item.name}`}
+                    aria-label={`Novo nome de ${p.name}`}
                   />
                 ) : (
-                  <strong>{item.name}</strong>
+                  <strong>{p.name}</strong>
                 )}
-
                 <div className="muted small">
-                  {item.active ? 'Ativo' : 'Inativo'}
+                  {p.active ? 'Ativo' : 'Inativo'}
                 </div>
               </div>
-
-              <div
-                className="line"
-                style={{ flexWrap: 'wrap' }}
-              >
-                {editingId === item.id ? (
+              <div className="line" style={{ flexWrap: 'wrap' }}>
+                {editingId === p.id ? (
                   <>
-                    <button
-                      disabled={busy || !editingName.trim()}
-                      onClick={() => renamePlayer(item)}
-                    >
+                    <button disabled={busy || !editingName.trim()} onClick={() => renamePlayer(p)}>
                       Salvar nome
                     </button>
-
-                    <button
-                      disabled={busy}
-                      onClick={() => {
-                        setEditingId(null);
-                        setEditingName('');
-                      }}
-                    >
+                    <button disabled={busy} onClick={() => setEditingId(null)}>
                       Cancelar
                     </button>
                   </>
                 ) : (
-                  <button
-                    disabled={busy || editingId !== null}
-                    onClick={() => startEditing(item)}
-                  >
+                  <button disabled={busy || editingId !== null} onClick={() => startEditing(p)}>
                     Editar nome
                   </button>
                 )}
-
                 <button
-                  className={item.active ? 'danger' : ''}
+                  className={p.active ? 'danger' : ''}
                   disabled={busy || editingId !== null}
-                  onClick={() => togglePlayer(item)}
+                  onClick={() => togglePlayer(p)}
                 >
-                  {item.active ? 'Desativar' : 'Reativar'}
+                  {p.active ? 'Desativar' : 'Reativar'}
                 </button>
               </div>
             </div>
           ))}
-      </section>
+      </section>}
 
-      <section className="panel">
+      {activeSection === "historico" && <section className="panel">
         <h2>📋 Histórico administrativo</h2>
-
-        <p className="muted small">
-          Consulte lançamentos, responsáveis e estornos.
-          O resumo considera somente registros válidos.
-        </p>
-
+        <p className="muted small">Consulte lançamentos, responsáveis e estornos. O resumo considera somente registros válidos.</p>
         <div className="grid">
           <div>
             <label>Categoria</label>
-            <select
-              value={historyRanking}
-              onChange={e => {
-                setHistoryRanking(e.target.value);
-                setHistoryPlayer('');
-              }}
-            >
+            <select value={historyRanking} onChange={e => { setHistoryRanking(e.target.value); setHistoryPlayer(''); }}>
               <option value="">Todas</option>
-              {rankings.map(item => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                </option>
-              ))}
+              {rankings.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
             </select>
           </div>
-
           <div>
             <label>Jogador</label>
-            <select
-              value={historyPlayer}
-              onChange={e => setHistoryPlayer(e.target.value)}
-            >
+            <select value={historyPlayer} onChange={e => setHistoryPlayer(e.target.value)}>
               <option value="">Todos</option>
-              {players
-                .filter(
-                  item =>
-                    !historyRanking ||
-                    item.ranking_id === historyRanking
-                )
-                .map(item => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                  </option>
-                ))}
+              {players.filter(p => !historyRanking || p.ranking_id === historyRanking)
+                .map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
           </div>
-
           <div>
             <label>Situação</label>
-            <select
-              value={historyStatus}
-              onChange={e => setHistoryStatus(e.target.value)}
-            >
+            <select value={historyStatus} onChange={e => setHistoryStatus(e.target.value)}>
               <option value="todos">Todos</option>
               <option value="validos">Válidos</option>
               <option value="estornados">Estornados</option>
             </select>
           </div>
         </div>
-
         <div className="grid">
-          <div>
-            <label>Data inicial (Brasília)</label>
-            <input
-              type="date"
-              value={dateFrom}
-              onChange={e => setDateFrom(e.target.value)}
-            />
-          </div>
-
-          <div>
-            <label>Data final (Brasília)</label>
-            <input
-              type="date"
-              value={dateTo}
-              onChange={e => setDateTo(e.target.value)}
-            />
-          </div>
+          <div><label>Data inicial (Brasília)</label><input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} /></div>
+          <div><label>Data final (Brasília)</label><input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} /></div>
         </div>
-
-        <p>
-          <strong>
-            {filteredResults.length} lançamento(s) encontrado(s)
-          </strong>
-        </p>
-
+        <p><strong>{filteredResults.length} lançamento(s) encontrado(s)</strong></p>
         <p className="muted small">
-          Total válido: {totals.wins} vitórias ·{' '}
-          {totals.goals} gols ·{' '}
-          {totals.assists} assistências ·{' '}
-          {formatPoints(totals.points)} pontos
+          Total válido: {totals.wins} vitórias · {totals.goals} gols · {totals.assists} assistências · {' '}
+          {totals.points.toLocaleString('pt-BR')} pontos
         </p>
-
-        <div className="line" style={{ flexWrap: 'wrap' }}>
-          <button
-            onClick={exportHistory}
-            disabled={filteredResults.length === 0}
-          >
-            Exportar CSV para Excel
-          </button>
-
-          <button onClick={clearFilters}>
-            Limpar filtros
-          </button>
-
-          <button disabled={busy} onClick={refresh}>
-            Atualizar histórico
-          </button>
-        </div>
-
-        {filteredResults.length === 0 && (
-          <p className="muted">
-            Nenhum lançamento encontrado.
-          </p>
-        )}
-
+        <button onClick={exportHistory} disabled={filteredResults.length === 0}>Exportar CSV para Excel</button>
+        {filteredResults.length === 0 && <p className="muted">Nenhum lançamento encontrado.</p>}
         {filteredResults.map(result => {
           const reversed = Boolean(result.reversed_at);
-
           return (
             <div className="history line" key={result.id}>
               <div>
                 <strong>{result.player_name}</strong>
-
+                <div className="muted small">{result.ranking_name}</div>
                 <div className="muted small">
-                  {result.ranking_name}
+                  {new Date(result.created_at).toLocaleString('pt-BR')} · {' '}
+                  {result.wins} V / {result.goals} G / {result.assists} A
                 </div>
-
-                <div className="muted small">
-                  {formatDate(result.created_at)}
-                  {' · '}
-                  {result.wins} V /
-                  {' '}{result.goals} G /
-                  {' '}{result.assists} A
-                </div>
-
-                <div className="muted small">
-                  Registrado por:{' '}
-                  {result.created_by_email || 'Não identificado'}
-                </div>
-
-                <div className="muted small">
-                  Situação:{' '}
-                  {reversed ? 'ESTORNADO' : 'VÁLIDO'}
-                </div>
-
-                {reversed && result.reversed_at && (
-                  <div className="muted small">
-                    Estornado em {formatDate(result.reversed_at)}
-                    {' · '}
-                    Por:{' '}
-                    {result.reversed_by_email || 'Não identificado'}
-                  </div>
-                )}
+                <div className="muted small">Registrado por: {result.created_by_email || 'Não identificado'}</div>
+                <div className="muted small">Situação: {reversed ? 'ESTORNADO' : 'VÁLIDO'}</div>
+                {reversed && <div className="muted small">
+                  Estornado em {new Date(result.reversed_at!).toLocaleString('pt-BR')}
+                  {' · '}Por: {result.reversed_by_email || 'Não identificado'}
+                </div>}
               </div>
-
               <button
                 className={reversed ? '' : 'danger'}
                 disabled={busy || reversed}
                 onClick={() => undo(result.id)}
-              >
-                {reversed ? 'Estornado' : 'Estornar'}
-              </button>
+              >{reversed ? 'Estornado' : 'Estornar'}</button>
             </div>
           );
         })}
-      </section>
+      </section>}
     </main>
   );
 }
