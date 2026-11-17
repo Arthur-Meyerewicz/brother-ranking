@@ -501,6 +501,19 @@ export default function Admin() {
           </strong>
         </p>
 
+        {player && validValues && (() => {
+          const current = results.filter(r => r.player_id === player && !r.reversed_at)
+            .reduce((sum, r) => sum + r.wins * Number(currentRanking?.win_points ?? 0)
+              + r.goals * Number(currentRanking?.goal_points ?? 0)
+              + r.assists * Number(currentRanking?.assist_points ?? 0), 0);
+          return <div className="score-preview" aria-live="polite">
+            <div className="eyebrow">PRÉVIA DO LANÇAMENTO</div>
+            <div className="preview-row"><div><span>Atual</span><strong>{current.toLocaleString('pt-BR')}</strong></div>
+              <span className="preview-arrow">→</span><div><span>Após salvar</span><strong className="success">{(current + points).toLocaleString('pt-BR')}</strong></div></div>
+            <p className="muted small">+{points.toLocaleString('pt-BR')} ponto(s) neste lançamento. Confirme antes de salvar.</p>
+          </div>;
+        })()}
+
         <p className="muted small">
           Critérios: {currentRanking?.win_points ?? 3} por vitória,
           {' '}{currentRanking?.goal_points ?? 1} por gol e
@@ -606,7 +619,7 @@ export default function Admin() {
             <label>Categoria</label>
             <select value={historyRanking} onChange={e => { setHistoryRanking(e.target.value); setHistoryPlayer(''); }}>
               <option value="">Todas</option>
-              {rankings.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+              {rankings.map(r => <option key={r.id} value={r.id}>{r.name.replace(/^BROTHER\s*/i, "")}</option>)}
             </select>
           </div>
           <div>
