@@ -37,8 +37,6 @@ export default function Home() {
   const [players, setPlayers] = useState<Player[]>([]);
   const [results, setResults] = useState<Result[]>([]);
   const [selected, setSelected] = useState('');
-  const [period, setPeriod] = useState<'temporada' | 'mensal'>('temporada');
-  const [month, setMonth] = useState('');
   const [participationFilter, setParticipationFilter] = useState<'geral' | 'mensalista' | 'avulso'>('geral');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -100,22 +98,7 @@ export default function Home() {
     return () => clearInterval(interval);
   }, []);
 
-  const monthKey = (date: string) => {
-    const parts = new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit'
-    }).formatToParts(new Date(date));
-    return `${parts.find(p => p.type === 'year')?.value}-${parts.find(p => p.type === 'month')?.value}`;
-  };
-  const months = useMemo(() => [...new Set(results.map(r => monthKey(r.created_at)))].sort().reverse(), [results]);
-  const selectedMonth = month || months[0] || monthKey(new Date().toISOString());
-  const scopedResults = useMemo(() => period === 'temporada'
-    ? results : results.filter(r => monthKey(r.created_at) === selectedMonth),
-    [results, period, selectedMonth]);
-  const monthLabel = (key: string) => {
-    const [year, m] = key.split('-').map(Number);
-    return new Intl.DateTimeFormat('pt-BR', { month: 'long', year: 'numeric', timeZone: 'UTC' })
-      .format(new Date(Date.UTC(year, m - 1, 1)));
-  };
+  const scopedResults = results;
   const currentRanking = rankings.find(r => r.id === selected);
   const categoryName = (name: string) => name.replace(/^BROTHER\s*/i, '');
 
@@ -174,16 +157,16 @@ export default function Home() {
     <main className="wrap">
       <header className="header">
         <div className="logo">
-          ⚽ BROTHER <span>Ranking</span>
+          <span className="brand-mark">⚽</span> BROTHER <span>RANKING</span>
         </div>
         <Link className="btn" href="/login">
           Área administrativa
         </Link>
       </header>
 
-      <div className="public-hero"><div className="eyebrow">TEMPORADA • CLASSIFICAÇÃO OFICIAL</div><h1>O ranking dos melhores.</h1>
+      <div className="public-hero"><div className="hero-glow" aria-hidden="true" /><div className="eyebrow">A ARENA DOS MELHORES</div><h1>Cada jogo conta. Cada ponto importa.</h1>
       <p className="muted">
-        Acompanhe cada vitória, gol e assistência em tempo real.
+        Vitórias, gols e assistências em uma classificação feita para quem vive a pelada.
       </p></div>
 
       <div className="tabs category-switch">
@@ -198,20 +181,6 @@ export default function Home() {
         ))}
       </div>
 
-      <section className="period-filter panel" aria-label="Período do ranking">
-        <div className="period-header"><div><div className="eyebrow">PERÍODO</div><h2>Classificação por período</h2></div>
-          <div className="period-buttons" role="group" aria-label="Período">
-            <button type="button" className={period === 'temporada' ? 'selected' : ''} onClick={() => setPeriod('temporada')}>Temporada</button>
-            <button type="button" className={period === 'mensal' ? 'selected' : ''} onClick={() => setPeriod('mensal')}>Mensal</button>
-          </div>
-        </div>
-        {period === 'mensal' && <div className="period-month"><label htmlFor="ranking-month">Mês de referência</label>
-          <select id="ranking-month" value={selectedMonth} onChange={e => setMonth(e.target.value)}>
-            {(months.length ? months : [selectedMonth]).map(m => <option key={m} value={m}>{monthLabel(m)}</option>)}
-          </select></div>}
-        <p className="muted small">{period === 'temporada' ? 'Pontuação acumulada em todos os lançamentos válidos.' : `Somente lançamentos válidos de ${monthLabel(selectedMonth)} (horário de Brasília).`}</p>
-      </section>
-
       <section className='participation-filter' aria-label="Filtrar por tipo de participação">
         <div className="participation-filter-heading">
           <div>
@@ -222,9 +191,9 @@ export default function Home() {
         </div>
         <div className="participation-filter-options" role="group" aria-label="Classificação">
           {([
-            ['geral', '🌐 Geral'],
-            ['mensalista', '📅 Mensalistas'],
-            ['avulso', '⚡ Avulsos']
+            ['geral', 'Geral'],
+            ['mensalista', 'Mensalistas'],
+            ['avulso', 'Avulsos']
           ] as const).map(([value, label]) => (
             <button key={value} type="button"
               className={participationFilter === value ? 'selected' : ''}
@@ -245,7 +214,7 @@ export default function Home() {
 
       {!loading && !error && classification.length > 0 && (
         <section className="podium-section" aria-label="Pódio dos três primeiros colocados">
-          <div className="section-heading"><span className="eyebrow">DESTAQUES</span><h2>🏆 Pódio {period === 'mensal' ? 'do mês' : 'da categoria'}</h2></div>
+          <div className="section-heading"><span className="eyebrow">DESTAQUES</span><h2>🏆 Pódio da categoria</h2></div>
           <div className="podium-grid">
             {[1, 0, 2].map(index => {
               const item = classification[index];
@@ -264,7 +233,7 @@ export default function Home() {
 
       {!loading && !error && classification.length > 0 && (
         <section className="highlights-section" aria-label="Destaques da temporada">
-          <div className="section-heading"><span className="eyebrow">ESTATÍSTICAS</span><h2>⭐ Destaques {period === 'mensal' ? 'do mês' : 'da categoria'}</h2></div>
+          <div className="section-heading"><span className="eyebrow">ESTATÍSTICAS</span><h2>⭐ Destaques da categoria</h2></div>
           <div className="highlights-grid">
             {([
               ['🏆', 'Maior pontuação', leaders.score?.name, leaders.score?.score],
@@ -284,8 +253,8 @@ export default function Home() {
 
       <section className="panel leaderboard-panel">
         <div className="line">
-          <h2>🏆 {currentRanking ? categoryName(currentRanking.name) : 'Ranking'} · {participationFilter === 'geral' ? 'Geral' : participationFilter === 'mensalista' ? 'Mensalistas' : 'Avulsos'} · {period === 'mensal' ? monthLabel(selectedMonth) : 'Temporada'}</h2>
-          <span className="pill">● Atualização a cada 15 s</span>
+          <h2>🏆 {currentRanking ? categoryName(currentRanking.name) : 'Ranking'} · {participationFilter === 'geral' ? 'Geral' : participationFilter === 'mensalista' ? 'Mensalistas' : 'Avulsos'}</h2>
+          <span className="pill"><span className="live-dot" /> Atualização a cada 15 s</span>
         </div>
 
         {loading && <p className="muted">Carregando...</p>}
@@ -331,25 +300,9 @@ export default function Home() {
             <div className="line"><span className="eyebrow">PERFIL DO JOGADOR</span><button aria-label="Fechar perfil" onClick={() => setProfileId(null)}>✕</button></div>
             <div className="profile-identity"><div className="profile-avatar" aria-hidden="true">{profile.name.split(/\s+/).slice(0, 2).map(part => part[0]).join('').toUpperCase()}</div><div><h2>{profile.name}</h2><span className="muted small">{profile.tipo_participacao === 'mensalista' ? 'Mensalista' : profile.tipo_participacao === 'avulso' ? 'Avulso' : 'Não classificado'} · Ficha de desempenho</span></div></div>
             <p className="muted">{categoryName(currentRanking?.name || '')} · {participationFilter === 'geral' ? 'Geral' : participationFilter === 'mensalista' ? 'Mensalistas' : 'Avulsos'} · {classification.findIndex(p => p.id === profile.id) + 1}º lugar</p>
-            <div className="profile-chart">
-              <h3>Evolução da pontuação · {period === 'mensal' ? monthLabel(selectedMonth) : 'Temporada'}</h3>
-              {(() => {
-                const ordered = [...profileResults].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-                let accumulated = 0;
-                const values = [0, ...ordered.map(r => (accumulated += r.wins * (currentRanking?.win_points ?? 0) + r.goals * (currentRanking?.goal_points ?? 0) + r.assists * (currentRanking?.assist_points ?? 0)))];
-                if (!ordered.length) return <p className="muted small">Sem lançamentos neste período.</p>;
-                const max = Math.max(...values, 1);
-                const coords = values.map((v, i) => `${20 + i * 560 / (values.length - 1)},${160 - (v / max) * 130}`).join(' ');
-                return <><svg viewBox="0 0 600 190" role="img" aria-label={`Evolução de zero a ${accumulated.toLocaleString('pt-BR')} pontos`} className="progress-svg" preserveAspectRatio="none">
-                  <line x1="20" y1="160" x2="580" y2="160" stroke="#38536c" strokeWidth="1" />
-                  <polyline points={coords} fill="none" stroke="#4de0bc" strokeWidth="4" strokeLinejoin="round" strokeLinecap="round" />
-                  <circle cx={580} cy={160 - (accumulated / max) * 130} r="5" fill="#4de0bc" />
-                </svg><div className="progress-labels"><span>Início</span><strong>{accumulated.toLocaleString('pt-BR')} pontos</strong></div></>;
-              })()}
-            </div>
             <div className="profile-total">{profile.score.toLocaleString('pt-BR')} <span>pontos</span></div>
             <div className="profile-stats"><div><strong>{profile.wins}</strong><span>Vitórias</span></div><div><strong>{profile.goals}</strong><span>Gols</span></div><div><strong>{profile.assists}</strong><span>Assistências</span></div></div>
-            <h3>Últimos resultados válidos {period === 'mensal' ? 'do mês' : 'da temporada'}</h3>
+            <h3>Últimos resultados válidos</h3>
             {profileResults.length === 0 ? <p className="muted small">Nenhum lançamento encontrado.</p> : (
               <div className="profile-history">{profileResults.slice(0, 12).map(r => (
                 <div key={r.id} className="profile-event"><span>{new Date(r.created_at).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}</span><strong>{r.wins} V · {r.goals} G · {r.assists} A</strong></div>

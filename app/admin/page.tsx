@@ -451,7 +451,7 @@ export default function Admin() {
     <main className="wrap">
       <header className="header">
         <div className="logo">
-          ⚽ BROTHER <span>Admin</span>
+          <span className="brand-mark">⚽</span> BROTHER <span>ADMIN</span>
         </div>
 
         <div className="line">
@@ -469,7 +469,7 @@ export default function Admin() {
 
       <section className="category-panel"><div className="eyebrow">CATEGORIA A SER EDITADA</div><div className="category-switch">{rankings.map(r => (<button key={r.id} type="button" className={ranking === r.id ? "category-choice selected" : "category-choice"} onClick={() => { setRanking(r.id); setPlayer(''); setEditingId(null); }}>{r.name.toLowerCase().includes("goleiro") ? "🧤 " : "⚽ "}{r.name.replace(/^BROTHER\s*/i, "")}</button>))}</div><p className="muted small">A categoria selecionada controla resultados e gerenciamento de jogadores.</p></section>
 
-      <nav className="admin-nav" aria-label="Seções administrativas"><button className={activeSection === "resultados" ? "selected" : ""} onClick={() => setActiveSection("resultados")}>🏆 Resultados</button><button className={activeSection === "jogadores" ? "selected" : ""} onClick={() => setActiveSection("jogadores")}>👥 Jogadores</button><button className={activeSection === "historico" ? "selected" : ""} onClick={() => setActiveSection("historico")}>📋 Histórico</button></nav>
+      <nav className="admin-nav" aria-label="Seções administrativas"><button className={activeSection === "resultados" ? "selected" : ""} onClick={() => setActiveSection("resultados")}>Resultados</button><button className={activeSection === "jogadores" ? "selected" : ""} onClick={() => setActiveSection("jogadores")}>Jogadores</button><button className={activeSection === "historico" ? "selected" : ""} onClick={() => setActiveSection("historico")}>Histórico</button></nav>
 
       {message && (
         <section className="panel" role="status">
@@ -478,7 +478,7 @@ export default function Admin() {
       )}
 
       {activeSection === "resultados" && <section className="panel">
-        <h2>🏆 Adicionar resultados</h2>
+        <h2>Adicionar resultados</h2>
 
         <label>Jogador</label>
 
@@ -568,7 +568,7 @@ export default function Admin() {
       </section>}
 
       {activeSection === "jogadores" && <section className="panel">
-        <h2>👥 Cadastrar jogador</h2>
+        <h2>Cadastrar jogador</h2>
 
         <label>Nome do jogador</label>
 
@@ -600,7 +600,7 @@ export default function Admin() {
       </section>}
 
       {activeSection === "jogadores" && <section className="panel">
-        <h2>⚙️ Gerenciar jogadores</h2>
+        <h2>Gerenciar jogadores</h2>
         <p className="muted small">
           Categoria: {currentRanking?.name.replace(/^BROTHER\s*/i, '') || 'Nenhuma'}. Alterações de nome
           preservam os resultados. Jogadores inativos não podem receber novos lançamentos.
@@ -681,7 +681,7 @@ export default function Admin() {
       </section>}
 
       {activeSection === "historico" && <section className="panel">
-        <h2>📋 Histórico administrativo</h2>
+        <h2>Histórico administrativo</h2>
         <p className="muted small">Consulte lançamentos, responsáveis e estornos. O resumo considera somente registros válidos.</p>
         <div className="grid">
           <div>

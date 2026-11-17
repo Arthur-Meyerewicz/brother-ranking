@@ -42,7 +42,7 @@ export default function Login() {
   return (
     <main className="wrap">
       <header className="header">
-        <div className="logo">⚽ BROTHER <span>Ranking</span></div>
+        <div className="logo"><span className="brand-mark">⚽</span> BROTHER <span>RANKING</span></div>
         <Link className="login-back" href="/">← Voltar ao ranking</Link>
       </header>
       <div className="login-shell">
