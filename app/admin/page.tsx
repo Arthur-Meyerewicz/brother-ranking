@@ -542,7 +542,7 @@ export default function Admin() {
         />
 
         <p className="muted small">
-          Categoria: {currentRanking?.name || 'Nenhuma'}
+          Categoria: {currentRanking?.name.replace(/^BROTHER\s*/i, '') || 'Nenhuma'}
         </p>
 
         <button
@@ -556,7 +556,7 @@ export default function Admin() {
       {activeSection === "jogadores" && <section className="panel">
         <h2>⚙️ Gerenciar jogadores</h2>
         <p className="muted small">
-          Categoria: {currentRanking?.name || 'Nenhuma'}. Alterações de nome
+          Categoria: {currentRanking?.name.replace(/^BROTHER\s*/i, '') || 'Nenhuma'}. Alterações de nome
           preservam os resultados. Jogadores inativos não podem receber novos lançamentos.
         </p>
         <label className="toggle-label">
@@ -656,7 +656,7 @@ export default function Admin() {
             <div className="history line" key={result.id}>
               <div>
                 <strong>{result.player_name}</strong>
-                <div className="muted small">{result.ranking_name}</div>
+                <div className="muted small">{result.ranking_name.replace(/^BROTHER\s*/i, '')}</div>
                 <div className="muted small">
                   {new Date(result.created_at).toLocaleString('pt-BR')} · {' '}
                   {result.wins} V / {result.goals} G / {result.assists} A

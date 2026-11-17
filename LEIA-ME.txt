@@ -1,0 +1,22 @@
+BROTHER Ranking V4 - arquivos para substituir no projeto
+
+Copie os arquivos preservando os caminhos:
+app/page.tsx
+app/admin/page.tsx
+app/login/page.tsx
+app/style.css
+
+Nao altere o arquivo lib/supabase.ts nem as chaves de ambiente.
+Esta versao preserva as chamadas existentes ao Supabase.
+
+Novidades:
+- ordem publica: Podio, Destaques, Classificacao, Comparacao
+- comparacao entre dois jogadores da mesma categoria
+- perfil do jogador com avatar de iniciais
+- desempate: pontos, vitorias, gols, assistencias, nome
+- melhorias visuais responsivas
+- nomes simplificados das categorias no painel
+
+Antes de publicar: execute npm install e npm run build na raiz do repositorio.
+Confira a pagina publica, login, inclusao, estorno e gerenciamento de jogadores.
+O arquivo CSS existente precisa ser mantido em app/style.css (nao globals.css).

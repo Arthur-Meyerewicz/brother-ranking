@@ -39,6 +39,9 @@ export default function Home() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [profileId, setProfileId] = useState<string | null>(null);
+  const [compareA, setCompareA] = useState('');
+  const [compareB, setCompareB] = useState('');
+  const [compareOpen, setCompareOpen] = useState(false);
 
   useEffect(() => {
     if (!configured) {
@@ -122,11 +125,15 @@ export default function Home() {
         (a, b) =>
           b.score - a.score ||
           b.wins - a.wins ||
+          b.goals - a.goals ||
+          b.assists - a.assists ||
           a.name.localeCompare(b.name)
       );
   }, [players, results, selected, currentRanking]);
 
   const profile = classification.find(p => p.id === profileId);
+  const comparedA = classification.find(p => p.id === compareA);
+  const comparedB = classification.find(p => p.id === compareB);
   const profileResults = profile ? results.filter(r => r.player_id === profile.id)
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()) : [];
   const leaders = {
@@ -157,7 +164,7 @@ export default function Home() {
           <button
             key={r.id}
             className={selected === r.id ? 'primary' : ''}
-            onClick={() => { setSelected(r.id); setProfileId(null); }}
+            onClick={() => { setSelected(r.id); setProfileId(null); setCompareA(''); setCompareB(''); setCompareOpen(false); }}
           >
             {categoryName(r.name)}
           </button>
@@ -182,6 +189,26 @@ export default function Home() {
           </div>
         </section>
       )}
+
+      {!loading && !error && classification.length > 0 && (
+        <section className="highlights-section" aria-label="Destaques da temporada">
+          <div className="section-heading"><span className="eyebrow">ESTATÍSTICAS</span><h2>⭐ Destaques da categoria</h2></div>
+          <div className="highlights-grid">
+            {([
+              ['🏆', 'Maior pontuação', leaders.score?.name, leaders.score?.score],
+              ['⚽', 'Artilheiro', leaders.goals?.name, leaders.goals?.goals],
+              ['🎯', 'Mais assistências', leaders.assists?.name, leaders.assists?.assists],
+              ['🔥', 'Mais vitórias', leaders.wins?.name, leaders.wins?.wins]
+            ] as const).map(([icon, label, name, value]) => (
+              <div className="highlight-card" key={label}><span className="highlight-icon">{icon}</span>
+                <span className="muted small">{label}</span><strong>{name || '—'}</strong>
+                <span className="highlight-value">{value?.toLocaleString('pt-BR') ?? '—'}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
 
       <section className="panel leaderboard-panel">
         <div className="line">
@@ -214,22 +241,15 @@ export default function Home() {
         )}
       </section>
 
-      {!loading && !error && classification.length > 0 && (
-        <section className="highlights-section" aria-label="Destaques da temporada">
-          <div className="section-heading"><span className="eyebrow">ESTATÍSTICAS</span><h2>⭐ Destaques da categoria</h2></div>
-          <div className="highlights-grid">
-            {([
-              ['🏆', 'Maior pontuação', leaders.score?.name, leaders.score?.score],
-              ['⚽', 'Artilheiro', leaders.goals?.name, leaders.goals?.goals],
-              ['🎯', 'Mais assistências', leaders.assists?.name, leaders.assists?.assists],
-              ['🔥', 'Mais vitórias', leaders.wins?.name, leaders.wins?.wins]
-            ] as const).map(([icon, label, name, value]) => (
-              <div className="highlight-card" key={label}><span className="highlight-icon">{icon}</span>
-                <span className="muted small">{label}</span><strong>{name || '—'}</strong>
-                <span className="highlight-value">{value?.toLocaleString('pt-BR') ?? '—'}</span>
-              </div>
-            ))}
-          </div>
+
+      {!loading && !error && classification.length > 1 && (
+        <section className="comparison-section panel" aria-label="Comparar jogadores">
+          <div className="line"><div><div className="eyebrow">FRENTE A FRENTE</div><h2>⚔️ Comparar jogadores</h2></div><button type="button" onClick={() => setCompareOpen(!compareOpen)} aria-expanded={compareOpen}>{compareOpen ? 'Fechar comparação' : 'Comparar jogadores'}</button></div>
+          {compareOpen && <><p className="muted small">Selecione dois jogadores da categoria para comparar seus números.</p>
+            <div className="compare-selectors"><div><label htmlFor="compare-a">Primeiro jogador</label><select id="compare-a" value={compareA} onChange={e => setCompareA(e.target.value)}><option value="">Selecione</option>{classification.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div><div><label htmlFor="compare-b">Segundo jogador</label><select id="compare-b" value={compareB} onChange={e => setCompareB(e.target.value)}><option value="">Selecione</option>{classification.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div></div>
+            {compareA && compareB && compareA === compareB && <p className="error">Selecione jogadores diferentes.</p>}
+            {comparedA && comparedB && comparedA.id !== comparedB.id && <div className="compare-board"><div className="compare-players"><strong>{comparedA.name}</strong><span>VS</span><strong>{comparedB.name}</strong></div>{([['Pontos','score'],['Vitórias','wins'],['Gols','goals'],['Assistências','assists']] as const).map(([label,key]) => <div className="compare-stat" key={key}><strong className={comparedA[key] > comparedB[key] ? 'compare-winner' : ''}>{comparedA[key].toLocaleString('pt-BR')}</strong><span>{label}</span><strong className={comparedB[key] > comparedA[key] ? 'compare-winner' : ''}>{comparedB[key].toLocaleString('pt-BR')}</strong></div>)}</div>}
+          </>}
         </section>
       )}
 
@@ -237,7 +257,7 @@ export default function Home() {
         <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) setProfileId(null); }}>
           <section className="profile-modal" role="dialog" aria-modal="true" aria-label={`Perfil de ${profile.name}`}>
             <div className="line"><span className="eyebrow">PERFIL DO JOGADOR</span><button aria-label="Fechar perfil" onClick={() => setProfileId(null)}>✕</button></div>
-            <h2>{profile.name}</h2>
+            <div className="profile-identity"><div className="profile-avatar" aria-hidden="true">{profile.name.split(/\s+/).slice(0, 2).map(part => part[0]).join('').toUpperCase()}</div><div><h2>{profile.name}</h2><span className="muted small">Ficha de desempenho</span></div></div>
             <p className="muted">{categoryName(currentRanking?.name || '')} · {classification.findIndex(p => p.id === profile.id) + 1}º lugar</p>
             <div className="profile-total">{profile.score.toLocaleString('pt-BR')} <span>pontos</span></div>
             <div className="profile-stats"><div><strong>{profile.wins}</strong><span>Vitórias</span></div><div><strong>{profile.goals}</strong><span>Gols</span></div><div><strong>{profile.assists}</strong><span>Assistências</span></div></div>
