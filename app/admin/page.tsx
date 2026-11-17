@@ -18,6 +18,7 @@ type Player = {
   name: string;
   ranking_id: string;
   active: boolean;
+  tipo_participacao: 'mensalista' | 'avulso' | null;
 };
 
 type Result = {
@@ -55,6 +56,8 @@ export default function Admin() {
   const [assists, setAssists] = useState('0');
 
   const [newName, setNewName] = useState('');
+  const [newType, setNewType] = useState<'mensalista' | 'avulso' | ''>('');
+  const [participationDrafts, setParticipationDrafts] = useState<Record<string, string>>({});
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
   const [showInactive, setShowInactive] = useState(false);
@@ -219,12 +222,14 @@ export default function Admin() {
         .insert({
           name,
           ranking_id: ranking,
-          active: true
+          active: true,
+          tipo_participacao: newType || null
         });
 
       if (error) throw error;
 
       setNewName('');
+      setNewType('');
       setMessage('Jogador cadastrado com sucesso!');
       await load();
     } catch (error) {
@@ -232,6 +237,39 @@ export default function Admin() {
         'Erro ao cadastrar jogador: ' +
         (error instanceof Error ? error.message : 'Erro desconhecido')
       );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveParticipation(p: Player) {
+    const chosen = participationDrafts[p.id] ?? (p.tipo_participacao || '');
+    if (chosen !== '' && chosen !== 'mensalista' && chosen !== 'avulso') {
+      setMessage('Tipo de participação inválido.');
+      return;
+    }
+    const value = chosen || null;
+    if (value === p.tipo_participacao) return;
+    setBusy(true);
+    setMessage('');
+    try {
+      const { data, error } = await supabase.from('players')
+        .update({ tipo_participacao: value })
+        .eq('id', p.id)
+        .eq('ranking_id', p.ranking_id)
+        .select('id');
+      if (error) throw error;
+      if (!data?.length) throw new Error('Atualização não confirmada. Verifique as permissões.');
+      setParticipationDrafts(current => {
+        const next = { ...current };
+        delete next[p.id];
+        return next;
+      });
+      await load();
+      setMessage(`Classificação de ${p.name} salva com sucesso!`);
+    } catch (error) {
+      setMessage('Erro ao salvar classificação: ' +
+        (error instanceof Error ? error.message : 'Erro desconhecido'));
     } finally {
       setBusy(false);
     }
@@ -541,6 +579,14 @@ export default function Admin() {
           maxLength={100}
         />
 
+        <label htmlFor="new-player-participation">Tipo de participação</label>
+        <select id="new-player-participation" value={newType}
+          onChange={e => setNewType(e.target.value as 'mensalista' | 'avulso' | '')}>
+          <option value="">Não classificado</option>
+          <option value="mensalista">Mensalista</option>
+          <option value="avulso">Avulso</option>
+        </select>
+
         <p className="muted small">
           Categoria: {currentRanking?.name.replace(/^BROTHER\s*/i, '') || 'Nenhuma'}
         </p>
@@ -581,7 +627,30 @@ export default function Admin() {
                   <strong>{p.name}</strong>
                 )}
                 <div className="muted small">
-                  {p.active ? 'Ativo' : 'Inativo'}
+                  {p.active ? 'Ativo' : 'Inativo'} · {' '}
+                  {p.tipo_participacao === 'mensalista' ? 'Mensalista' :
+                   p.tipo_participacao === 'avulso' ? 'Avulso' : 'Não classificado'}
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'end', marginTop: 10 }}>
+                  <div style={{ flex: '1 1 180px', minWidth: 150 }}>
+                    <label htmlFor={`participation-${p.id}`}>Tipo de participação</label>
+                    <select id={`participation-${p.id}`}
+                      value={participationDrafts[p.id] ?? (p.tipo_participacao || '')}
+                      disabled={busy || editingId !== null}
+                      onChange={e => setParticipationDrafts(current => ({
+                        ...current, [p.id]: e.target.value
+                      }))}>
+                      <option value="">Não classificado</option>
+                      <option value="mensalista">Mensalista</option>
+                      <option value="avulso">Avulso</option>
+                    </select>
+                  </div>
+                  <button type="button"
+                    disabled={busy || editingId !== null ||
+                      (participationDrafts[p.id] ?? (p.tipo_participacao || '')) === (p.tipo_participacao || '')}
+                    onClick={() => saveParticipation(p)}>
+                    Salvar classificação
+                  </button>
                 </div>
               </div>
               <div className="line" style={{ flexWrap: 'wrap' }}>
