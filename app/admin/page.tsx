@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '../../lib/supabase';
@@ -37,6 +37,100 @@ type Result = {
   reversed_at: string | null;
   reversed_by: string | null;
 };
+
+const BANNER_WIDTH = 1600;
+const BANNER_HEIGHT = 650;
+
+function BannerCropEditor({ file, onChange }: { file: File; onChange: (getImage: () => Promise<Blob>) => void }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const imageRef = useRef<HTMLImageElement | null>(null);
+  const dragRef = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
+  const [zoom, setZoom] = useState(1);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const [ready, setReady] = useState(false);
+  const offsetRef = useRef(offset);
+  const zoomRef = useRef(zoom);
+  offsetRef.current = offset;
+  zoomRef.current = zoom;
+
+  useEffect(() => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    imageRef.current = null;
+    setReady(false);
+    setZoom(1);
+    setOffset({ x: 0, y: 0 });
+    img.onload = () => { imageRef.current = img; setReady(true); };
+    img.onerror = () => setReady(false);
+    img.src = url;
+    return () => { imageRef.current = null; URL.revokeObjectURL(url); };
+  }, [file]);
+
+  const paint = useCallback((canvas: HTMLCanvasElement, z: number, pos: { x: number; y: number }) => {
+    const img = imageRef.current;
+    const ctx = canvas.getContext('2d');
+    if (!img || !ctx) return;
+    const w = canvas.width;
+    const h = canvas.height;
+    const scale = Math.max(w / img.naturalWidth, h / img.naturalHeight) * z;
+    const iw = img.naturalWidth * scale;
+    const ih = img.naturalHeight * scale;
+    const maxX = Math.max(0, (iw - w) / 2);
+    const maxY = Math.max(0, (ih - h) / 2);
+    ctx.clearRect(0, 0, w, h);
+    ctx.drawImage(img, (w - iw) / 2 + pos.x * maxX, (h - ih) / 2 + pos.y * maxY, iw, ih);
+  }, []);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (ready && canvas) paint(canvas, zoom, offset);
+  }, [ready, zoom, offset, paint]);
+
+  useEffect(() => {
+    if (!ready) return;
+    onChange(() => new Promise<Blob>((resolve, reject) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = BANNER_WIDTH;
+      canvas.height = BANNER_HEIGHT;
+      paint(canvas, zoomRef.current, offsetRef.current);
+      canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Falha ao gerar recorte.')), 'image/jpeg', 0.9);
+    }));
+  }, [ready, onChange, paint]);
+
+  function pointerMove(e: React.PointerEvent<HTMLCanvasElement>) {
+    const start = dragRef.current;
+    const canvas = canvasRef.current;
+    const img = imageRef.current;
+    if (!start || !canvas || !img) return;
+    const rect = canvas.getBoundingClientRect();
+    const scale = Math.max(BANNER_WIDTH / img.naturalWidth, BANNER_HEIGHT / img.naturalHeight) * zoomRef.current;
+    const maxX = Math.max(0, (img.naturalWidth * scale - BANNER_WIDTH) / 2);
+    const maxY = Math.max(0, (img.naturalHeight * scale - BANNER_HEIGHT) / 2);
+    const dx = (e.clientX - start.x) * (BANNER_WIDTH / rect.width);
+    const dy = (e.clientY - start.y) * (BANNER_HEIGHT / rect.height);
+    setOffset({
+      x: maxX ? Math.max(-1, Math.min(1, start.ox + dx / maxX)) : 0,
+      y: maxY ? Math.max(-1, Math.min(1, start.oy + dy / maxY)) : 0
+    });
+  }
+
+  return <div className="banner-crop-editor">
+    <div className="eyebrow">AJUSTAR ENQUADRAMENTO</div>
+    <p className="muted small">Arraste a foto para posicionar os jogadores dentro do banner. Use o zoom para aproximar ou afastar.</p>
+    <canvas ref={canvasRef} width={BANNER_WIDTH} height={BANNER_HEIGHT} className="banner-crop-canvas"
+      aria-label="Prévia do recorte do banner; arraste para reposicionar"
+      onPointerDown={e => { if (!ready) return; e.currentTarget.setPointerCapture(e.pointerId); dragRef.current = { x: e.clientX, y: e.clientY, ox: offset.x, oy: offset.y }; }}
+      onPointerMove={pointerMove}
+      onPointerUp={e => { dragRef.current = null; if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId); }}
+      onPointerCancel={() => { dragRef.current = null; }} />
+    {!ready && <p className="muted small">Carregando imagem...</p>}
+    <div className="banner-crop-controls"><label htmlFor="banner-zoom">Zoom: {Math.round(zoom * 100)}%</label>
+      <input id="banner-zoom" type="range" min="1" max="3" step="0.01" value={zoom} onChange={e => setZoom(Number(e.target.value))} disabled={!ready} />
+      <button type="button" onClick={() => { setZoom(1); setOffset({ x: 0, y: 0 }); }}>Centralizar foto</button>
+    </div>
+    <p className="muted small">O arquivo será recortado em 1600 × 650 pixels ao publicar.</p>
+  </div>;
+}
 
 export default function Admin() {
   const router = useRouter();
@@ -76,6 +170,8 @@ export default function Admin() {
   const [highlightPath, setHighlightPath] = useState<string | null>(null);
   const [highlightBusy, setHighlightBusy] = useState(false);
   const [highlightMessage, setHighlightMessage] = useState('');
+  const cropImageRef = useRef<(() => Promise<Blob>) | null>(null);
+  const setCropImage = useCallback((fn: () => Promise<Blob>) => { cropImageRef.current = fn; }, []);
 
   const load = useCallback(async () => {
     const [r, p, e] = await Promise.all([
@@ -468,9 +564,10 @@ export default function Admin() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Sessão expirada. Entre novamente.');
-      const extension = highlightFile.type === 'image/png' ? 'png' : highlightFile.type === 'image/webp' ? 'webp' : 'jpg';
-      uploadedPath = `${user.id}/${crypto.randomUUID()}.${extension}`;
-      const { error: uploadError } = await supabase.storage.from('weekly-highlights').upload(uploadedPath, highlightFile, { contentType: highlightFile.type, upsert: false });
+      if (!cropImageRef.current) throw new Error('Aguarde o carregamento do editor de recorte.');
+      const croppedBlob = await cropImageRef.current();
+      uploadedPath = `${user.id}/${crypto.randomUUID()}.jpg`;
+      const { error: uploadError } = await supabase.storage.from('weekly-highlights').upload(uploadedPath, croppedBlob, { contentType: 'image/jpeg', upsert: false });
       if (uploadError) throw uploadError;
       const { error: saveError } = await supabase.from('weekly_highlight').upsert({
         id: 1, title: highlightTitle.trim(), description: highlightDescription.trim() || null,
@@ -480,6 +577,7 @@ export default function Admin() {
       if (saveError) throw saveError;
       setHighlightPath(uploadedPath);
       setHighlightFile(null);
+      cropImageRef.current = null;
       const fileInput = document.getElementById('weekly-photo') as HTMLInputElement | null;
       if (fileInput) fileInput.value = '';
       setHighlightMessage('Destaque publicado! A página pública atualizará a imagem automaticamente.');
@@ -538,7 +636,8 @@ export default function Admin() {
         <p className="muted">Publique uma foto do time ou dos jogadores que se destacaram. A nova foto substitui a anterior no banner.</p>
         {highlightPath && <div className="weekly-preview" style={{backgroundImage: `url("${supabase.storage.from('weekly-highlights').getPublicUrl(highlightPath).data.publicUrl}")`}} role="img" aria-label="Foto de destaque atualmente publicada" />}
         <label htmlFor="weekly-photo">Foto (JPG, PNG ou WebP, até 8 MB)</label>
-        <input id="weekly-photo" type="file" accept="image/jpeg,image/png,image/webp" onChange={e => setHighlightFile(e.target.files?.[0] || null)} />
+        <input id="weekly-photo" type="file" accept="image/jpeg,image/png,image/webp" onChange={e => { const next = e.target.files?.[0] || null; cropImageRef.current = null; if (next && (!['image/jpeg', 'image/png', 'image/webp'].includes(next.type) || next.size > 8 * 1024 * 1024)) { setHighlightMessage('Escolha JPG, PNG ou WebP de até 8 MB.'); setHighlightFile(null); e.target.value = ''; return; } setHighlightMessage(''); setHighlightFile(next); }} />
+        {highlightFile && <BannerCropEditor key={highlightFile.name + highlightFile.lastModified} file={highlightFile} onChange={setCropImage} />}
         <label htmlFor="weekly-title">Título</label>
         <input id="weekly-title" value={highlightTitle} maxLength={100} onChange={e => setHighlightTitle(e.target.value)} placeholder="Craques da rodada" />
         <label htmlFor="weekly-description">Descrição (opcional)</label>
