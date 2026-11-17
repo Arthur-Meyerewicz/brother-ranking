@@ -61,7 +61,7 @@ export default function Admin() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
   const [showInactive, setShowInactive] = useState(false);
-  const [activeSection, setActiveSection] = useState<'resultados' | 'jogadores' | 'historico'>('resultados');
+  const [activeSection, setActiveSection] = useState<'resultados' | 'jogadores' | 'historico' | 'destaque'>('resultados');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [historyRanking, setHistoryRanking] = useState('');
@@ -69,6 +69,13 @@ export default function Admin() {
   const [historyStatus, setHistoryStatus] = useState('todos');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [highlightTitle, setHighlightTitle] = useState('Craques da rodada');
+  const [highlightDescription, setHighlightDescription] = useState('');
+  const [highlightDate, setHighlightDate] = useState('');
+  const [highlightFile, setHighlightFile] = useState<File | null>(null);
+  const [highlightPath, setHighlightPath] = useState<string | null>(null);
+  const [highlightBusy, setHighlightBusy] = useState(false);
+  const [highlightMessage, setHighlightMessage] = useState('');
 
   const load = useCallback(async () => {
     const [r, p, e] = await Promise.all([
@@ -434,6 +441,54 @@ export default function Admin() {
     }
   }
 
+  const loadHighlight = useCallback(async () => {
+    const { data, error } = await supabase.from('weekly_highlight')
+      .select('title,description,played_at,image_path').eq('id', 1).maybeSingle();
+    if (error) { setHighlightMessage(`Não foi possível carregar o destaque: ${error.message}`); return; }
+    if (data) {
+      setHighlightTitle(data.title);
+      setHighlightDescription(data.description || '');
+      setHighlightDate(data.played_at || '');
+      setHighlightPath(data.image_path);
+    }
+  }, []);
+
+  useEffect(() => { if (authorized) void loadHighlight(); }, [authorized, loadHighlight]);
+
+  async function publishHighlight() {
+    if (!highlightFile) { setHighlightMessage('Selecione uma foto para publicar.'); return; }
+    if (!highlightTitle.trim()) { setHighlightMessage('Informe o título do destaque.'); return; }
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(highlightFile.type)) {
+      setHighlightMessage('Use uma imagem JPG, PNG ou WebP.'); return;
+    }
+    if (highlightFile.size > 8 * 1024 * 1024) { setHighlightMessage('A imagem deve ter no máximo 8 MB.'); return; }
+    setHighlightBusy(true);
+    setHighlightMessage('');
+    let uploadedPath = '';
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Sessão expirada. Entre novamente.');
+      const extension = highlightFile.type === 'image/png' ? 'png' : highlightFile.type === 'image/webp' ? 'webp' : 'jpg';
+      uploadedPath = `${user.id}/${crypto.randomUUID()}.${extension}`;
+      const { error: uploadError } = await supabase.storage.from('weekly-highlights').upload(uploadedPath, highlightFile, { contentType: highlightFile.type, upsert: false });
+      if (uploadError) throw uploadError;
+      const { error: saveError } = await supabase.from('weekly_highlight').upsert({
+        id: 1, title: highlightTitle.trim(), description: highlightDescription.trim() || null,
+        played_at: highlightDate || null, image_path: uploadedPath, updated_by: user.id,
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'id' });
+      if (saveError) throw saveError;
+      setHighlightPath(uploadedPath);
+      setHighlightFile(null);
+      const fileInput = document.getElementById('weekly-photo') as HTMLInputElement | null;
+      if (fileInput) fileInput.value = '';
+      setHighlightMessage('Destaque publicado! A página pública atualizará a imagem automaticamente.');
+    } catch (error) {
+      if (uploadedPath) await supabase.storage.from('weekly-highlights').remove([uploadedPath]);
+      setHighlightMessage(error instanceof Error ? error.message : 'Não foi possível publicar a foto.');
+    } finally { setHighlightBusy(false); }
+  }
+
   async function logout() {
     await supabase.auth.signOut();
     router.replace('/login');
@@ -469,13 +524,30 @@ export default function Admin() {
 
       <section className="category-panel"><div className="eyebrow">CATEGORIA A SER EDITADA</div><div className="category-switch">{rankings.map(r => (<button key={r.id} type="button" className={ranking === r.id ? "category-choice selected" : "category-choice"} onClick={() => { setRanking(r.id); setPlayer(''); setEditingId(null); }}>{r.name.toLowerCase().includes("goleiro") ? "🧤 " : "⚽ "}{r.name.replace(/^BROTHER\s*/i, "")}</button>))}</div><p className="muted small">A categoria selecionada controla resultados e gerenciamento de jogadores.</p></section>
 
-      <nav className="admin-nav" aria-label="Seções administrativas"><button className={activeSection === "resultados" ? "selected" : ""} onClick={() => setActiveSection("resultados")}>Resultados</button><button className={activeSection === "jogadores" ? "selected" : ""} onClick={() => setActiveSection("jogadores")}>Jogadores</button><button className={activeSection === "historico" ? "selected" : ""} onClick={() => setActiveSection("historico")}>Histórico</button></nav>
+      <nav className="admin-nav" aria-label="Seções administrativas"><button className={activeSection === "resultados" ? "selected" : ""} onClick={() => setActiveSection("resultados")}>Resultados</button><button className={activeSection === "jogadores" ? "selected" : ""} onClick={() => setActiveSection("jogadores")}>Jogadores</button><button className={activeSection === "historico" ? "selected" : ""} onClick={() => setActiveSection("historico")}>Histórico</button><button className={activeSection === "destaque" ? "selected" : ""} onClick={() => setActiveSection("destaque")}>Destaque da semana</button></nav>
 
       {message && (
         <section className="panel" role="status">
           <p>{message}</p>
         </section>
       )}
+
+      {activeSection === 'destaque' && <section className="panel weekly-admin">
+        <div className="eyebrow">BANNER DA PÁGINA INICIAL</div>
+        <h2>Foto de destaque da semana</h2>
+        <p className="muted">Publique uma foto do time ou dos jogadores que se destacaram. A nova foto substitui a anterior no banner.</p>
+        {highlightPath && <div className="weekly-preview" style={{backgroundImage: `url("${supabase.storage.from('weekly-highlights').getPublicUrl(highlightPath).data.publicUrl}")`}} role="img" aria-label="Foto de destaque atualmente publicada" />}
+        <label htmlFor="weekly-photo">Foto (JPG, PNG ou WebP, até 8 MB)</label>
+        <input id="weekly-photo" type="file" accept="image/jpeg,image/png,image/webp" onChange={e => setHighlightFile(e.target.files?.[0] || null)} />
+        <label htmlFor="weekly-title">Título</label>
+        <input id="weekly-title" value={highlightTitle} maxLength={100} onChange={e => setHighlightTitle(e.target.value)} placeholder="Craques da rodada" />
+        <label htmlFor="weekly-description">Descrição (opcional)</label>
+        <input id="weekly-description" value={highlightDescription} maxLength={240} onChange={e => setHighlightDescription(e.target.value)} placeholder="Os destaques da pelada" />
+        <label htmlFor="weekly-date">Data da pelada (opcional)</label>
+        <input id="weekly-date" type="date" value={highlightDate} onChange={e => setHighlightDate(e.target.value)} />
+        {highlightMessage && <p role="status" className="muted">{highlightMessage}</p>}
+        <button type="button" className="primary" disabled={highlightBusy || !highlightFile || !highlightTitle.trim()} onClick={publishHighlight}>{highlightBusy ? 'Publicando...' : 'Publicar destaque'}</button>
+      </section>}
 
       {activeSection === "resultados" && <section className="panel">
         <h2>Adicionar resultados</h2>

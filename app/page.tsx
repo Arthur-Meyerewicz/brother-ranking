@@ -44,6 +44,7 @@ export default function Home() {
   const [compareA, setCompareA] = useState('');
   const [compareB, setCompareB] = useState('');
   const [compareOpen, setCompareOpen] = useState(false);
+  const [weeklyHighlight, setWeeklyHighlight] = useState<{title:string;description:string|null;played_at:string|null;image_path:string}|null>(null);
 
   useEffect(() => {
     if (!configured) {
@@ -90,12 +91,18 @@ export default function Home() {
       setLoading(false);
     }
 
+    async function loadHighlight() {
+      const { data } = await supabase.from('weekly_highlight').select('title,description,played_at,image_path').eq('id', 1).maybeSingle();
+      setWeeklyHighlight(data || null);
+    }
     load();
+    loadHighlight();
 
     // Atualiza periodicamente, mesmo sem Realtime habilitado.
     const interval = setInterval(load, 15000);
+    const highlightInterval = setInterval(loadHighlight, 60000);
 
-    return () => clearInterval(interval);
+    return () => { clearInterval(interval); clearInterval(highlightInterval); };
   }, []);
 
   const scopedResults = results;
@@ -164,10 +171,21 @@ export default function Home() {
         </Link>
       </header>
 
-      <div className="public-hero"><div className="hero-glow" aria-hidden="true" /><div className="eyebrow">A ARENA DOS MELHORES</div><h1>Cada jogo conta. Cada ponto importa.</h1>
-      <p className="muted">
-        Vitórias, gols e assistências em uma classificação feita para quem vive a pelada.
-      </p></div>
+      <section className={`public-hero weekly-hero${weeklyHighlight ? ' has-photo' : ''}`} aria-label="Destaque da semana">
+        {weeklyHighlight ? (
+          <>
+            <div className="weekly-hero-photo" style={{backgroundImage: `url("${supabase.storage.from('weekly-highlights').getPublicUrl(weeklyHighlight.image_path).data.publicUrl}")`}} aria-hidden="true" />
+            <div className="weekly-hero-content">
+              <div className="eyebrow">DESTAQUE DA SEMANA</div>
+              <h1>{weeklyHighlight.title}</h1>
+              {weeklyHighlight.description && <p>{weeklyHighlight.description}</p>}
+              {weeklyHighlight.played_at && <div className="weekly-date">Pelada de {new Date(`${weeklyHighlight.played_at}T12:00:00`).toLocaleDateString('pt-BR')}</div>}
+            </div>
+          </>
+        ) : (
+          <div className="weekly-hero-content"><div className="hero-glow" aria-hidden="true" /><div className="eyebrow">A ARENA DOS MELHORES</div><h1>Cada jogo conta. Cada ponto importa.</h1><p className="muted">Vitórias, gols e assistências em uma classificação feita para quem vive a pelada.</p></div>
+        )}
+      </section>
 
       <div className="tabs category-switch">
         {rankings.map(r => (
