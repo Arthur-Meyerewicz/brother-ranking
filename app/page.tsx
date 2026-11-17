@@ -18,6 +18,7 @@ type Player = {
   ranking_id: string;
   name: string;
   active: boolean;
+  tipo_participacao: 'mensalista' | 'avulso' | null;
 };
 
 type Result = {
@@ -36,6 +37,7 @@ export default function Home() {
   const [players, setPlayers] = useState<Player[]>([]);
   const [results, setResults] = useState<Result[]>([]);
   const [selected, setSelected] = useState('');
+  const [participationFilter, setParticipationFilter] = useState<'geral' | 'mensalista' | 'avulso'>('geral');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [profileId, setProfileId] = useState<string | null>(null);
@@ -99,7 +101,7 @@ export default function Home() {
   const currentRanking = rankings.find(r => r.id === selected);
   const categoryName = (name: string) => name.replace(/^BROTHER\s*/i, '');
 
-  const classification = useMemo(() => {
+  const fullClassification = useMemo(() => {
     return players
       .filter(p => p.ranking_id === selected)
       .map(player => {
@@ -131,7 +133,14 @@ export default function Home() {
       );
   }, [players, results, selected, currentRanking]);
 
-  const profile = classification.find(p => p.id === profileId);
+  // A classificação filtrada mantém a pontuação original e recalcula as posições.
+  const classification = useMemo(() =>
+    fullClassification.filter(p =>
+      participationFilter === 'geral' || p.tipo_participacao === participationFilter
+    ), [fullClassification, participationFilter]);
+
+  const profile = fullClassification.find(p => p.id === profileId);
+
   const comparedA = classification.find(p => p.id === compareA);
   const comparedB = classification.find(p => p.id === compareB);
   const profileResults = profile ? results.filter(r => r.player_id === profile.id)
@@ -170,6 +179,37 @@ export default function Home() {
           </button>
         ))}
       </div>
+
+      <section className="participation-filter" aria-label="Filtrar por tipo de participação">
+        <div className="participation-filter-heading">
+          <div>
+            <div className="eyebrow">TIPO DE PARTICIPAÇÃO</div>
+            <h2>Escolha a classificação</h2>
+          </div>
+          <span className="muted small">{classification.length} jogador(es)</span>
+        </div>
+        <div className="participation-filter-options" role="group" aria-label="Classificação">
+          {([
+            ['geral', '🌐 Geral'],
+            ['mensalista', '📅 Mensalistas'],
+            ['avulso', '⚡ Avulsos']
+          ] as const).map(([value, label]) => (
+            <button key={value} type="button"
+              className={participationFilter === value ? 'selected' : ''}
+              aria-pressed={participationFilter === value}
+              onClick={() => { setParticipationFilter(value); setProfileId(null); setCompareA(''); setCompareB(''); setCompareOpen(false); }}>
+              {label}
+            </button>
+          ))}
+        </div>
+        <p className="muted small participation-filter-description">
+          {participationFilter === 'geral'
+            ? 'Todos os jogadores ativos, incluindo os ainda não classificados.'
+            : participationFilter === 'mensalista'
+              ? 'Somente jogadores cadastrados como mensalistas.'
+              : 'Somente jogadores cadastrados como avulsos.'}
+        </p>
+      </section>
 
       {!loading && !error && classification.length > 0 && (
         <section className="podium-section" aria-label="Pódio dos três primeiros colocados">
@@ -212,7 +252,7 @@ export default function Home() {
 
       <section className="panel leaderboard-panel">
         <div className="line">
-          <h2>🏆 {currentRanking ? categoryName(currentRanking.name) : 'Ranking'}</h2>
+          <h2>🏆 {currentRanking ? categoryName(currentRanking.name) : 'Ranking'} · {participationFilter === 'geral' ? 'Geral' : participationFilter === 'mensalista' ? 'Mensalistas' : 'Avulsos'}</h2>
           <span className="pill">● Atualização a cada 15 s</span>
         </div>
 
@@ -222,7 +262,7 @@ export default function Home() {
 
         {!loading && !error && classification.length === 0 && (
           <p className="muted">
-            Nenhum jogador cadastrado neste ranking.
+            Nenhum jogador encontrado para esta classificação.
           </p>
         )}
 
@@ -257,8 +297,8 @@ export default function Home() {
         <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) setProfileId(null); }}>
           <section className="profile-modal" role="dialog" aria-modal="true" aria-label={`Perfil de ${profile.name}`}>
             <div className="line"><span className="eyebrow">PERFIL DO JOGADOR</span><button aria-label="Fechar perfil" onClick={() => setProfileId(null)}>✕</button></div>
-            <div className="profile-identity"><div className="profile-avatar" aria-hidden="true">{profile.name.split(/\s+/).slice(0, 2).map(part => part[0]).join('').toUpperCase()}</div><div><h2>{profile.name}</h2><span className="muted small">Ficha de desempenho</span></div></div>
-            <p className="muted">{categoryName(currentRanking?.name || '')} · {classification.findIndex(p => p.id === profile.id) + 1}º lugar</p>
+            <div className="profile-identity"><div className="profile-avatar" aria-hidden="true">{profile.name.split(/\s+/).slice(0, 2).map(part => part[0]).join('').toUpperCase()}</div><div><h2>{profile.name}</h2><span className="muted small">{profile.tipo_participacao === 'mensalista' ? 'Mensalista' : profile.tipo_participacao === 'avulso' ? 'Avulso' : 'Não classificado'} · Ficha de desempenho</span></div></div>
+            <p className="muted">{categoryName(currentRanking?.name || '')} · {participationFilter === 'geral' ? 'Geral' : participationFilter === 'mensalista' ? 'Mensalistas' : 'Avulsos'} · {classification.findIndex(p => p.id === profile.id) + 1}º lugar</p>
             <div className="profile-total">{profile.score.toLocaleString('pt-BR')} <span>pontos</span></div>
             <div className="profile-stats"><div><strong>{profile.wins}</strong><span>Vitórias</span></div><div><strong>{profile.goals}</strong><span>Gols</span></div><div><strong>{profile.assists}</strong><span>Assistências</span></div></div>
             <h3>Últimos resultados válidos</h3>
